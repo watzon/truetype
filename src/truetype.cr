@@ -47,7 +47,33 @@ require "./truetype/tables/glyf"
 require "./truetype/tables/name"
 require "./truetype/tables/post"
 require "./truetype/tables/os2"
+require "./truetype/tables/kern"
+require "./truetype/tables/vhea"
+require "./truetype/tables/vmtx"
+require "./truetype/tables/vorg"
+
+# OpenType layout tables
+require "./truetype/tables/opentype/coverage"
+require "./truetype/tables/opentype/class_def"
+require "./truetype/tables/opentype/common"
+require "./truetype/tables/opentype/gdef"
+require "./truetype/tables/opentype/gsub"
+require "./truetype/tables/opentype/gpos"
+
+# Outline types and extraction
+require "./truetype/outline"
+require "./truetype/outline_extractor"
+
+# CFF parsing
+require "./truetype/tables/cff/index"
+require "./truetype/tables/cff/dict"
+require "./truetype/tables/cff/table"
+require "./truetype/tables/cff/charstring"
+require "./truetype/tables/cff/font"
 
 # Main parser and subsetter
 require "./truetype/parser"
 require "./truetype/subsetter"
+require "./truetype/font_collection"
+require "./truetype/woff"
+require "./truetype/woff2"

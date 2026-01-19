@@ -1,7 +1,5 @@
 require "../spec_helper"
 
-FONT_PATH = "spec/fixtures/fonts/DejaVuSans.ttf"
-
 describe TrueType::Parser do
   describe ".parse" do
     it "parses a valid TrueType font file" do
