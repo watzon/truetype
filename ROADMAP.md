@@ -105,8 +105,8 @@ Features required for proper typography and international text support.
 - [x] Lookup Type 4: Mark-to-base attachment
 - [x] Lookup Type 5: Mark-to-ligature attachment
 - [x] Lookup Type 6: Mark-to-mark attachment
-- [ ] Lookup Type 7: Context positioning (placeholder)
-- [ ] Lookup Type 8: Chained context positioning (placeholder)
+- [x] Lookup Type 7: Context positioning
+- [x] Lookup Type 8: Chained context positioning
 - [x] Lookup Type 9: Extension positioning
 - [x] Apply GPOS features by tag (`kern`, `mark`, `mkmk`, etc.)
 
@@ -117,10 +117,10 @@ Features required for proper typography and international text support.
 - [x] Lookup Type 2: Multiple substitution
 - [x] Lookup Type 3: Alternate substitution
 - [x] Lookup Type 4: Ligature substitution
-- [ ] Lookup Type 5: Context substitution (placeholder)
-- [ ] Lookup Type 6: Chained context substitution (placeholder)
+- [x] Lookup Type 5: Context substitution
+- [x] Lookup Type 6: Chained context substitution
 - [x] Lookup Type 7: Extension substitution
-- [ ] Lookup Type 8: Reverse chaining substitution (placeholder)
+- [x] Lookup Type 8: Reverse chaining substitution
 - [x] Apply GSUB features by tag (`liga`, `clig`, `dlig`, `calt`, etc.)
 
 ### Coverage & Class Definition Tables ✅
@@ -143,7 +143,7 @@ Features required for proper typography and international text support.
 - [x] Small caps (`smcp`, `c2sc`)
 - [x] Localized forms (`locl`)
 
-> **Note**: Context-based lookups (Types 5-8) have placeholder implementations. The parser recognizes them but returns empty results. Full context matching requires additional lookup chaining logic.
+> **Note**: Context-based lookups (Types 5-8) are fully parsed. The structures are complete and ready for use in a shaping engine. Full text shaping requires implementing lookup application logic that chains nested lookups.
 
 ---
 

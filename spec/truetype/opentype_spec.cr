@@ -311,6 +311,188 @@ describe TrueType::Tables::OpenType::PairPosFormat1 do
   end
 end
 
+# Context lookup structures
+describe TrueType::Tables::OpenType::SequenceRule do
+  it "stores glyph sequence and lookup records" do
+    lookup_record = TrueType::Tables::OpenType::SequenceLookupRecord.new(0_u16, 1_u16)
+    rule = TrueType::Tables::OpenType::SequenceRule.new([20_u16, 30_u16], [lookup_record])
+
+    rule.glyph_sequence.should eq([20_u16, 30_u16])
+    rule.lookup_records.size.should eq(1)
+    rule.glyph_count.should eq(3) # Including first glyph matched by coverage
+  end
+end
+
+describe TrueType::Tables::OpenType::ClassSequenceRule do
+  it "stores class sequence and lookup records" do
+    lookup_record = TrueType::Tables::OpenType::SequenceLookupRecord.new(1_u16, 2_u16)
+    rule = TrueType::Tables::OpenType::ClassSequenceRule.new([1_u16, 2_u16], [lookup_record])
+
+    rule.class_sequence.should eq([1_u16, 2_u16])
+    rule.glyph_count.should eq(3)
+  end
+end
+
+describe TrueType::Tables::OpenType::ChainedSequenceRule do
+  it "stores backtrack, input, lookahead and lookup records" do
+    lookup_record = TrueType::Tables::OpenType::SequenceLookupRecord.new(0_u16, 0_u16)
+    rule = TrueType::Tables::OpenType::ChainedSequenceRule.new(
+      [5_u16],           # backtrack
+      [20_u16, 30_u16],  # input (excluding first)
+      [40_u16],          # lookahead
+      [lookup_record]
+    )
+
+    rule.backtrack_sequence.should eq([5_u16])
+    rule.input_sequence.should eq([20_u16, 30_u16])
+    rule.lookahead_sequence.should eq([40_u16])
+    rule.input_glyph_count.should eq(3)
+  end
+end
+
+describe TrueType::Tables::OpenType::SequenceLookupRecord do
+  it "stores sequence index and lookup index" do
+    record = TrueType::Tables::OpenType::SequenceLookupRecord.new(2_u16, 5_u16)
+
+    record.sequence_index.should eq(2_u16)
+    record.lookup_index.should eq(5_u16)
+  end
+end
+
+# Context Positioning subtables
+describe TrueType::Tables::OpenType::ContextPosFormat1 do
+  it "returns correct lookup type" do
+    coverage = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16])
+    rule_sets = Array(Array(TrueType::Tables::OpenType::SequenceRule)?).new
+    rule_sets << nil
+    subtable = TrueType::Tables::OpenType::ContextPosFormat1.new(coverage, rule_sets)
+
+    subtable.lookup_type.should eq(TrueType::Tables::OpenType::GPOSLookupType::Context)
+  end
+
+  it "returns rules for covered glyph" do
+    coverage = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16])
+    lookup_record = TrueType::Tables::OpenType::SequenceLookupRecord.new(0_u16, 1_u16)
+    rule = TrueType::Tables::OpenType::SequenceRule.new([20_u16], [lookup_record])
+
+    rule_sets = Array(Array(TrueType::Tables::OpenType::SequenceRule)?).new
+    rule_sets << [rule]
+    subtable = TrueType::Tables::OpenType::ContextPosFormat1.new(coverage, rule_sets)
+
+    rules = subtable.rules_for(10_u16)
+    rules.should_not be_nil
+    rules.not_nil!.size.should eq(1)
+
+    subtable.rules_for(99_u16).should be_nil
+  end
+end
+
+describe TrueType::Tables::OpenType::ContextPosFormat3 do
+  it "matches glyph sequence against coverages" do
+    cov1 = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16]).as(TrueType::Tables::OpenType::Coverage)
+    cov2 = TrueType::Tables::OpenType::CoverageFormat1.new([20_u16]).as(TrueType::Tables::OpenType::Coverage)
+    lookup_record = TrueType::Tables::OpenType::SequenceLookupRecord.new(0_u16, 0_u16)
+
+    subtable = TrueType::Tables::OpenType::ContextPosFormat3.new([cov1, cov2], [lookup_record])
+
+    subtable.matches?([10_u16, 20_u16]).should be_true
+    subtable.matches?([10_u16, 30_u16]).should be_false
+    subtable.matches?([10_u16]).should be_false # too short
+  end
+end
+
+# Chained Context Positioning subtables
+describe TrueType::Tables::OpenType::ChainedContextPosFormat3 do
+  it "checks input sequence against coverages" do
+    input_cov1 = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16]).as(TrueType::Tables::OpenType::Coverage)
+    input_cov2 = TrueType::Tables::OpenType::CoverageFormat1.new([20_u16]).as(TrueType::Tables::OpenType::Coverage)
+    lookup_record = TrueType::Tables::OpenType::SequenceLookupRecord.new(0_u16, 0_u16)
+
+    subtable = TrueType::Tables::OpenType::ChainedContextPosFormat3.new(
+      [] of TrueType::Tables::OpenType::Coverage, # backtrack
+      [input_cov1, input_cov2],                   # input
+      [] of TrueType::Tables::OpenType::Coverage, # lookahead
+      [lookup_record]
+    )
+
+    subtable.input_matches?([10_u16, 20_u16]).should be_true
+    subtable.input_matches?([10_u16, 99_u16]).should be_false
+  end
+end
+
+# Context Substitution subtables
+describe TrueType::Tables::OpenType::ContextSubstFormat1 do
+  it "returns correct lookup type" do
+    coverage = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16])
+    rule_sets = Array(Array(TrueType::Tables::OpenType::SequenceRule)?).new
+    rule_sets << nil
+    subtable = TrueType::Tables::OpenType::ContextSubstFormat1.new(coverage, rule_sets)
+
+    subtable.lookup_type.should eq(TrueType::Tables::OpenType::GSUBLookupType::Context)
+  end
+
+  it "returns rules for covered glyph" do
+    coverage = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16])
+    lookup_record = TrueType::Tables::OpenType::SequenceLookupRecord.new(0_u16, 1_u16)
+    rule = TrueType::Tables::OpenType::SequenceRule.new([20_u16], [lookup_record])
+
+    rule_sets = Array(Array(TrueType::Tables::OpenType::SequenceRule)?).new
+    rule_sets << [rule]
+    subtable = TrueType::Tables::OpenType::ContextSubstFormat1.new(coverage, rule_sets)
+
+    rules = subtable.rules_for(10_u16)
+    rules.should_not be_nil
+    rules.not_nil!.size.should eq(1)
+  end
+end
+
+describe TrueType::Tables::OpenType::ChainedContextSubstFormat3 do
+  it "checks input sequence against coverages" do
+    input_cov = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16, 20_u16]).as(TrueType::Tables::OpenType::Coverage)
+    lookup_record = TrueType::Tables::OpenType::SequenceLookupRecord.new(0_u16, 0_u16)
+
+    subtable = TrueType::Tables::OpenType::ChainedContextSubstFormat3.new(
+      [] of TrueType::Tables::OpenType::Coverage,
+      [input_cov],
+      [] of TrueType::Tables::OpenType::Coverage,
+      [lookup_record]
+    )
+
+    subtable.input_matches?([10_u16]).should be_true
+    subtable.input_matches?([20_u16]).should be_true
+    subtable.input_matches?([99_u16]).should be_false
+  end
+end
+
+# Reverse Chaining Substitution
+describe TrueType::Tables::OpenType::ReverseChainSubst do
+  it "returns correct lookup type" do
+    coverage = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16])
+    subtable = TrueType::Tables::OpenType::ReverseChainSubst.new(
+      [] of TrueType::Tables::OpenType::Coverage,
+      coverage,
+      [] of TrueType::Tables::OpenType::Coverage,
+      [100_u16]
+    )
+
+    subtable.lookup_type.should eq(TrueType::Tables::OpenType::GSUBLookupType::ReverseChainingCtx)
+  end
+
+  it "substitutes covered glyph" do
+    coverage = TrueType::Tables::OpenType::CoverageFormat1.new([10_u16, 20_u16])
+    subtable = TrueType::Tables::OpenType::ReverseChainSubst.new(
+      [] of TrueType::Tables::OpenType::Coverage,
+      coverage,
+      [] of TrueType::Tables::OpenType::Coverage,
+      [100_u16, 200_u16]
+    )
+
+    subtable.substitute(10_u16).should eq(100_u16)
+    subtable.substitute(20_u16).should eq(200_u16)
+    subtable.substitute(99_u16).should be_nil
+  end
+end
+
 # Integration tests with real font file
 describe "OpenType layout with real font" do
   it "can check for OpenType layout tables" do

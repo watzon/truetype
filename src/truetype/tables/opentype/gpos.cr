@@ -244,6 +244,147 @@ module TrueType
         end
       end
 
+      # Context Positioning Format 1: Simple glyph context
+      class ContextPosFormat1 < GPOSSubtable
+        getter coverage : Coverage
+        getter rule_sets : Array(Array(SequenceRule)?)
+
+        def initialize(@coverage : Coverage, @rule_sets : Array(Array(SequenceRule)?))
+        end
+
+        def lookup_type : GPOSLookupType
+          GPOSLookupType::Context
+        end
+
+        # Get rules for a starting glyph
+        def rules_for(glyph_id : UInt16) : Array(SequenceRule)?
+          idx = @coverage.coverage_index(glyph_id)
+          return nil unless idx
+          @rule_sets[idx]?
+        end
+      end
+
+      # Context Positioning Format 2: Class-based context
+      class ContextPosFormat2 < GPOSSubtable
+        getter coverage : Coverage
+        getter class_def : ClassDef
+        getter rule_sets : Array(Array(ClassSequenceRule)?)
+
+        def initialize(@coverage : Coverage, @class_def : ClassDef, @rule_sets : Array(Array(ClassSequenceRule)?))
+        end
+
+        def lookup_type : GPOSLookupType
+          GPOSLookupType::Context
+        end
+
+        # Get rules for a starting glyph (by its class)
+        def rules_for(glyph_id : UInt16) : Array(ClassSequenceRule)?
+          return nil unless @coverage.covers?(glyph_id)
+          class_id = @class_def.class_id(glyph_id)
+          @rule_sets[class_id]?
+        end
+      end
+
+      # Context Positioning Format 3: Coverage-based context
+      class ContextPosFormat3 < GPOSSubtable
+        getter coverages : Array(Coverage)
+        getter lookup_records : Array(SequenceLookupRecord)
+
+        def initialize(@coverages : Array(Coverage), @lookup_records : Array(SequenceLookupRecord))
+        end
+
+        def lookup_type : GPOSLookupType
+          GPOSLookupType::Context
+        end
+
+        # Check if a sequence of glyphs matches all coverages
+        def matches?(glyphs : Array(UInt16)) : Bool
+          return false if glyphs.size < @coverages.size
+          @coverages.each_with_index do |cov, i|
+            return false unless cov.covers?(glyphs[i])
+          end
+          true
+        end
+      end
+
+      # Chained Context Positioning Format 1: Simple glyph chained context
+      class ChainedContextPosFormat1 < GPOSSubtable
+        getter coverage : Coverage
+        getter rule_sets : Array(Array(ChainedSequenceRule)?)
+
+        def initialize(@coverage : Coverage, @rule_sets : Array(Array(ChainedSequenceRule)?))
+        end
+
+        def lookup_type : GPOSLookupType
+          GPOSLookupType::ChainingContext
+        end
+
+        # Get rules for a starting glyph
+        def rules_for(glyph_id : UInt16) : Array(ChainedSequenceRule)?
+          idx = @coverage.coverage_index(glyph_id)
+          return nil unless idx
+          @rule_sets[idx]?
+        end
+      end
+
+      # Chained Context Positioning Format 2: Class-based chained context
+      class ChainedContextPosFormat2 < GPOSSubtable
+        getter coverage : Coverage
+        getter backtrack_class_def : ClassDef
+        getter input_class_def : ClassDef
+        getter lookahead_class_def : ClassDef
+        getter rule_sets : Array(Array(ChainedClassSequenceRule)?)
+
+        def initialize(
+          @coverage : Coverage,
+          @backtrack_class_def : ClassDef,
+          @input_class_def : ClassDef,
+          @lookahead_class_def : ClassDef,
+          @rule_sets : Array(Array(ChainedClassSequenceRule)?)
+        )
+        end
+
+        def lookup_type : GPOSLookupType
+          GPOSLookupType::ChainingContext
+        end
+
+        # Get rules for a starting glyph (by its input class)
+        def rules_for(glyph_id : UInt16) : Array(ChainedClassSequenceRule)?
+          return nil unless @coverage.covers?(glyph_id)
+          class_id = @input_class_def.class_id(glyph_id)
+          @rule_sets[class_id]?
+        end
+      end
+
+      # Chained Context Positioning Format 3: Coverage-based chained context
+      class ChainedContextPosFormat3 < GPOSSubtable
+        getter backtrack_coverages : Array(Coverage)
+        getter input_coverages : Array(Coverage)
+        getter lookahead_coverages : Array(Coverage)
+        getter lookup_records : Array(SequenceLookupRecord)
+
+        def initialize(
+          @backtrack_coverages : Array(Coverage),
+          @input_coverages : Array(Coverage),
+          @lookahead_coverages : Array(Coverage),
+          @lookup_records : Array(SequenceLookupRecord)
+        )
+        end
+
+        def lookup_type : GPOSLookupType
+          GPOSLookupType::ChainingContext
+        end
+
+        # Check if input sequence matches all input coverages
+        def input_matches?(glyphs : Array(UInt16)) : Bool
+          return false if glyphs.size < @input_coverages.size
+          @input_coverages.each_with_index do |cov, i|
+            return false unless cov.covers?(glyphs[i])
+          end
+          true
+        end
+      end
+
       # GPOS Lookup table
       class GPOSLookup
         include IOHelpers
@@ -297,13 +438,20 @@ module TrueType
             parse_cursive_pos(io, offset)
           when .mark_to_base?
             parse_mark_base_pos(io, offset)
+          when .mark_to_ligature?
+            # Mark-to-ligature has same structure as mark-to-base
+            # but with ligature attachment points instead of base anchors
+            parse_mark_base_pos(io, offset)
           when .mark_to_mark?
             parse_mark_mark_pos(io, offset)
+          when .context?
+            parse_context_pos(io, offset)
+          when .chaining_context?
+            parse_chained_context_pos(io, offset)
           when .extension?
             parse_extension(io, offset, table_data)
           else
-            # Placeholder for complex context lookups
-            SinglePosFormat1.new(CoverageFormat1.new([] of UInt16), ValueFormat::None, ValueRecord.new)
+            raise ParseError.new("Unknown GPOS lookup type: #{lookup_type}")
           end
         end
 
@@ -529,6 +677,219 @@ module TrueType
           extension_offset = read_uint32(io)
 
           parse_subtable(io, offset + extension_offset, extension_lookup_type, table_data)
+        end
+
+        private def self.parse_context_pos(io : IO, offset : UInt32) : GPOSSubtable
+          format = read_uint16(io)
+
+          case format
+          when 1
+            parse_context_pos_format1(io, offset)
+          when 2
+            parse_context_pos_format2(io, offset)
+          when 3
+            parse_context_pos_format3(io, offset)
+          else
+            raise ParseError.new("Unknown ContextPos format: #{format}")
+          end
+        end
+
+        private def self.parse_context_pos_format1(io : IO, offset : UInt32) : ContextPosFormat1
+          coverage_offset = read_uint16(io)
+          rule_set_count = read_uint16(io)
+
+          rule_set_offsets = Array(UInt16).new(rule_set_count.to_i)
+          rule_set_count.times { rule_set_offsets << read_uint16(io) }
+
+          coverage = Coverage.parse(io, offset + coverage_offset)
+
+          rule_sets = rule_set_offsets.map do |rso|
+            if rso == 0
+              nil
+            else
+              io.seek((offset + rso).to_i64)
+              rule_count = read_uint16(io)
+              rule_offsets = Array(UInt16).new(rule_count.to_i)
+              rule_count.times { rule_offsets << read_uint16(io) }
+
+              rule_offsets.map do |ro|
+                io.seek((offset + rso + ro).to_i64)
+                ContextParser.parse_sequence_rule(io)
+              end
+            end
+          end
+
+          ContextPosFormat1.new(coverage, rule_sets)
+        end
+
+        private def self.parse_context_pos_format2(io : IO, offset : UInt32) : ContextPosFormat2
+          coverage_offset = read_uint16(io)
+          class_def_offset = read_uint16(io)
+          rule_set_count = read_uint16(io)
+
+          rule_set_offsets = Array(UInt16).new(rule_set_count.to_i)
+          rule_set_count.times { rule_set_offsets << read_uint16(io) }
+
+          coverage = Coverage.parse(io, offset + coverage_offset)
+          class_def = ClassDef.parse(io, offset + class_def_offset)
+
+          rule_sets = rule_set_offsets.map do |rso|
+            if rso == 0
+              nil
+            else
+              io.seek((offset + rso).to_i64)
+              rule_count = read_uint16(io)
+              rule_offsets = Array(UInt16).new(rule_count.to_i)
+              rule_count.times { rule_offsets << read_uint16(io) }
+
+              rule_offsets.map do |ro|
+                io.seek((offset + rso + ro).to_i64)
+                ContextParser.parse_class_sequence_rule(io)
+              end
+            end
+          end
+
+          ContextPosFormat2.new(coverage, class_def, rule_sets)
+        end
+
+        private def self.parse_context_pos_format3(io : IO, offset : UInt32) : ContextPosFormat3
+          glyph_count = read_uint16(io)
+          lookup_count = read_uint16(io)
+
+          coverage_offsets = Array(UInt16).new(glyph_count.to_i)
+          glyph_count.times { coverage_offsets << read_uint16(io) }
+
+          lookup_records = Array(SequenceLookupRecord).new(lookup_count.to_i)
+          lookup_count.times do
+            seq_idx = read_uint16(io)
+            lookup_idx = read_uint16(io)
+            lookup_records << SequenceLookupRecord.new(seq_idx, lookup_idx)
+          end
+
+          coverages = coverage_offsets.map { |co| Coverage.parse(io, offset + co) }
+
+          ContextPosFormat3.new(coverages, lookup_records)
+        end
+
+        private def self.parse_chained_context_pos(io : IO, offset : UInt32) : GPOSSubtable
+          format = read_uint16(io)
+
+          case format
+          when 1
+            parse_chained_context_pos_format1(io, offset)
+          when 2
+            parse_chained_context_pos_format2(io, offset)
+          when 3
+            parse_chained_context_pos_format3(io, offset)
+          else
+            raise ParseError.new("Unknown ChainedContextPos format: #{format}")
+          end
+        end
+
+        private def self.parse_chained_context_pos_format1(io : IO, offset : UInt32) : ChainedContextPosFormat1
+          coverage_offset = read_uint16(io)
+          rule_set_count = read_uint16(io)
+
+          rule_set_offsets = Array(UInt16).new(rule_set_count.to_i)
+          rule_set_count.times { rule_set_offsets << read_uint16(io) }
+
+          coverage = Coverage.parse(io, offset + coverage_offset)
+
+          rule_sets = rule_set_offsets.map do |rso|
+            if rso == 0
+              nil
+            else
+              io.seek((offset + rso).to_i64)
+              rule_count = read_uint16(io)
+              rule_offsets = Array(UInt16).new(rule_count.to_i)
+              rule_count.times { rule_offsets << read_uint16(io) }
+
+              rule_offsets.map do |ro|
+                io.seek((offset + rso + ro).to_i64)
+                ContextParser.parse_chained_sequence_rule(io)
+              end
+            end
+          end
+
+          ChainedContextPosFormat1.new(coverage, rule_sets)
+        end
+
+        private def self.parse_chained_context_pos_format2(io : IO, offset : UInt32) : ChainedContextPosFormat2
+          coverage_offset = read_uint16(io)
+          backtrack_class_def_offset = read_uint16(io)
+          input_class_def_offset = read_uint16(io)
+          lookahead_class_def_offset = read_uint16(io)
+          rule_set_count = read_uint16(io)
+
+          rule_set_offsets = Array(UInt16).new(rule_set_count.to_i)
+          rule_set_count.times { rule_set_offsets << read_uint16(io) }
+
+          coverage = Coverage.parse(io, offset + coverage_offset)
+          
+          # Handle potentially zero offsets for class definitions
+          backtrack_class_def = if backtrack_class_def_offset > 0
+                                   ClassDef.parse(io, offset + backtrack_class_def_offset)
+                                 else
+                                   ClassDefFormat1.new(0_u16, [] of UInt16)
+                                 end
+          
+          input_class_def = if input_class_def_offset > 0
+                               ClassDef.parse(io, offset + input_class_def_offset)
+                             else
+                               ClassDefFormat1.new(0_u16, [] of UInt16)
+                             end
+          
+          lookahead_class_def = if lookahead_class_def_offset > 0
+                                   ClassDef.parse(io, offset + lookahead_class_def_offset)
+                                 else
+                                   ClassDefFormat1.new(0_u16, [] of UInt16)
+                                 end
+
+          rule_sets = rule_set_offsets.map do |rso|
+            if rso == 0
+              nil
+            else
+              io.seek((offset + rso).to_i64)
+              rule_count = read_uint16(io)
+              rule_offsets = Array(UInt16).new(rule_count.to_i)
+              rule_count.times { rule_offsets << read_uint16(io) }
+
+              rule_offsets.map do |ro|
+                io.seek((offset + rso + ro).to_i64)
+                ContextParser.parse_chained_class_sequence_rule(io)
+              end
+            end
+          end
+
+          ChainedContextPosFormat2.new(coverage, backtrack_class_def, input_class_def, lookahead_class_def, rule_sets)
+        end
+
+        private def self.parse_chained_context_pos_format3(io : IO, offset : UInt32) : ChainedContextPosFormat3
+          backtrack_count = read_uint16(io)
+          backtrack_offsets = Array(UInt16).new(backtrack_count.to_i)
+          backtrack_count.times { backtrack_offsets << read_uint16(io) }
+
+          input_count = read_uint16(io)
+          input_offsets = Array(UInt16).new(input_count.to_i)
+          input_count.times { input_offsets << read_uint16(io) }
+
+          lookahead_count = read_uint16(io)
+          lookahead_offsets = Array(UInt16).new(lookahead_count.to_i)
+          lookahead_count.times { lookahead_offsets << read_uint16(io) }
+
+          lookup_count = read_uint16(io)
+          lookup_records = Array(SequenceLookupRecord).new(lookup_count.to_i)
+          lookup_count.times do
+            seq_idx = read_uint16(io)
+            lookup_idx = read_uint16(io)
+            lookup_records << SequenceLookupRecord.new(seq_idx, lookup_idx)
+          end
+
+          backtrack_coverages = backtrack_offsets.map { |o| Coverage.parse(io, offset + o) }
+          input_coverages = input_offsets.map { |o| Coverage.parse(io, offset + o) }
+          lookahead_coverages = lookahead_offsets.map { |o| Coverage.parse(io, offset + o) }
+
+          ChainedContextPosFormat3.new(backtrack_coverages, input_coverages, lookahead_coverages, lookup_records)
         end
       end
 
