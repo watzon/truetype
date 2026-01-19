@@ -1,30 +1,49 @@
 # TrueType/OpenType font parsing and subsetting library for Crystal.
 #
 # This library provides comprehensive support for reading and manipulating
-# TrueType (.ttf) and OpenType (.otf) font files, including font subsetting
-# for embedding in documents.
+# TrueType (.ttf), OpenType (.otf), WOFF, and WOFF2 font files, including
+# font subsetting for embedding in documents.
 #
 # ## Quick Start
 #
 # ```
 # require "truetype"
 #
-# # Parse a font file
-# font = TrueType::Parser.parse("path/to/font.ttf")
+# # Open any font format with auto-detection
+# font = TrueType::Font.open("path/to/font.ttf")  # or .otf, .woff, .woff2, .ttc
 #
 # # Access font information
-# puts font.postscript_name
-# puts font.units_per_em
-# puts font.ascender
+# puts font.name              # "DejaVu Sans"
+# puts font.postscript_name   # "DejaVuSans"
+# puts font.units_per_em      # 2048
 #
-# # Get glyph metrics
-# glyph_id = font.glyph_id('A')
-# width = font.advance_width(glyph_id)
+# # Shape text (with kerning and basic layout)
+# glyphs = font.shape("Hello!")
+# glyphs.each do |g|
+#   puts "Glyph #{g.id}: advance=#{g.x_advance}"
+# end
 #
-# # Create a subset with only needed glyphs
-# subsetter = TrueType::Subsetter.new(font)
-# subsetter.use("Hello World!")
-# subset_data = subsetter.subset
+# # Variable fonts
+# if font.variable?
+#   bold = font.instance(wght: 700)
+#   puts bold.text_width("Bold text")
+# end
+#
+# # Subset for embedding
+# subset = font.subset("Hello World!")
+# File.write("subset.ttf", subset)
+# ```
+#
+# ## Low-Level API
+#
+# For advanced use cases, the `Parser` class provides direct access to
+# all font tables and data structures:
+#
+# ```
+# parser = TrueType::Parser.parse("font.ttf")
+# parser.head.units_per_em
+# parser.cmap.glyph_id('A'.ord.to_u32)
+# parser.glyf.glyph(glyph_id, parser.loca)
 # ```
 module TrueType
   VERSION = "0.1.0"
@@ -32,6 +51,9 @@ end
 
 # IO Helpers for binary reading/writing
 require "./truetype/io_helpers"
+
+# Error handling
+require "./truetype/errors"
 
 # Table record structure
 require "./truetype/table_record"
@@ -132,3 +154,8 @@ require "./truetype/font_collection"
 require "./truetype/woff"
 require "./truetype/woff2"
 require "./truetype/variation_instance"
+require "./truetype/font"
+require "./truetype/text_layout"
+
+# Optional HarfBuzz support (compile with -Dharfbuzz)
+require "./truetype/shaping/harfbuzz"

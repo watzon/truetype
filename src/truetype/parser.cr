@@ -1,8 +1,4 @@
 module TrueType
-  # Error raised when parsing a TrueType font fails
-  class ParseError < Exception
-  end
-
   # TrueType/OpenType font parser.
   # Parses .ttf and .otf font files and provides access to font data.
   class Parser

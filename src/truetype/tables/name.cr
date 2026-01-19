@@ -116,6 +116,21 @@ module TrueType
         get(NameID::FULL_NAME)
       end
 
+      # Get the font subfamily (style) name
+      def subfamily : String?
+        get(NameID::PREFERRED_SUBFAMILY) || get(NameID::FONT_SUBFAMILY)
+      end
+
+      # Get the copyright notice
+      def copyright : String?
+        get(NameID::COPYRIGHT)
+      end
+
+      # Get the version string
+      def version : String?
+        get(NameID::VERSION_STRING)
+      end
+
       # Find the preferred record for a name ID
       private def find_preferred_record(name_id : UInt16) : NameRecord?
         # Collect matching records
