@@ -10,3 +10,8 @@ crystal: '>= 1.0.0'
 license: MIT
 
 repository: https://github.com/watzon/truetype
+
+dependencies:
+  brotli:
+    github: naqvis/brotli.cr
+    optional: true
