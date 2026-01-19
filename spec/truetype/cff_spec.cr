@@ -1,12 +1,10 @@
 require "../spec_helper"
 
-CFF_FONT_PATH = "spec/fixtures/fonts/otf_sample.otf"
-
 # These tests run only if a CFF-based OTF is present
-if File.exists?(CFF_FONT_PATH)
+if File.exists?(OTF_FONT_PATH)
   describe "CFF parsing" do
     it "parses CFF table from OTF" do
-      parser = TrueType::Parser.parse(CFF_FONT_PATH)
+      parser = TrueType::Parser.parse(OTF_FONT_PATH)
       parser.cff?.should be_true
       parser.has_table?("CFF ").should be_true
 
@@ -16,8 +14,91 @@ if File.exists?(CFF_FONT_PATH)
     end
 
     it "extracts CFF glyph outline" do
-      parser = TrueType::Parser.parse(CFF_FONT_PATH)
+      parser = TrueType::Parser.parse(OTF_FONT_PATH)
       outline = parser.glyph_outline(0_u16)
+      outline.should be_a(TrueType::GlyphOutline)
+    end
+  end
+
+  describe "CFF subsetting" do
+    it "creates a subset font with used characters" do
+      parser = TrueType::Parser.parse(OTF_FONT_PATH)
+      subsetter = TrueType::Subsetter.new(parser)
+
+      subsetter.use("Hello")
+      subset_data = subsetter.subset
+
+      subset_data.should_not be_empty
+      # Subset should be smaller than original
+      subset_data.size.should be < parser.data.size
+    end
+
+    it "produces a valid OTF font structure" do
+      parser = TrueType::Parser.parse(OTF_FONT_PATH)
+      subsetter = TrueType::Subsetter.new(parser)
+
+      subsetter.use("A")
+      subset_data = subsetter.subset
+
+      # Parse the subset to verify structure
+      subset_parser = TrueType::Parser.parse(subset_data)
+      subset_parser.cff?.should be_true
+      subset_parser.has_table?("CFF ").should be_true
+      subset_parser.maxp.num_glyphs.should be >= 2 # At least .notdef and 'A'
+    end
+
+    it "maintains glyph ID mapping" do
+      parser = TrueType::Parser.parse(OTF_FONT_PATH)
+      subsetter = TrueType::Subsetter.new(parser)
+
+      subsetter.use("ABC")
+      subsetter.subset
+
+      mapping = subsetter.unicode_to_glyph_map
+      mapping.should_not be_empty
+      mapping['A'.ord.to_u32]?.should_not be_nil
+      mapping['B'.ord.to_u32]?.should_not be_nil
+      mapping['C'.ord.to_u32]?.should_not be_nil
+    end
+
+    it "preserves font metrics" do
+      parser = TrueType::Parser.parse(OTF_FONT_PATH)
+      subsetter = TrueType::Subsetter.new(parser)
+
+      subsetter.use("A")
+      subset_data = subsetter.subset
+      subset_parser = TrueType::Parser.parse(subset_data)
+
+      # Basic metrics should be preserved
+      subset_parser.units_per_em.should eq(parser.units_per_em)
+      subset_parser.ascender.should eq(parser.ascender)
+      subset_parser.descender.should eq(parser.descender)
+    end
+
+    it "subsets a longer string" do
+      parser = TrueType::Parser.parse(OTF_FONT_PATH)
+      subsetter = TrueType::Subsetter.new(parser)
+
+      subsetter.use("The quick brown fox jumps over the lazy dog.")
+      subset_data = subsetter.subset
+
+      # Parse and verify
+      subset_parser = TrueType::Parser.parse(subset_data)
+      subset_parser.maxp.num_glyphs.should be > 0
+      subset_parser.cff?.should be_true
+    end
+
+    it "handles CFF glyph outline extraction after subsetting" do
+      parser = TrueType::Parser.parse(OTF_FONT_PATH)
+      subsetter = TrueType::Subsetter.new(parser)
+
+      subsetter.use("A")
+      subset_data = subsetter.subset
+      subset_parser = TrueType::Parser.parse(subset_data)
+
+      # Get outline for 'A' in the subset
+      new_glyph_id = subsetter.unicode_to_glyph_map['A'.ord.to_u32]
+      outline = subset_parser.glyph_outline(new_glyph_id)
       outline.should be_a(TrueType::GlyphOutline)
     end
   end

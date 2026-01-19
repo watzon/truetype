@@ -55,7 +55,8 @@ module TrueType
               # 16-bit signed integer
               b1 = read_uint8(io)
               b2 = read_uint8(io)
-              value = ((b1.to_i32 << 8) | b2.to_i32).to_i16.to_i32
+              unsigned = (b1.to_u16 << 8) | b2.to_u16
+              value = unsigned.to_i16!.to_i32
               operands << value
             when 29
               # 32-bit signed integer

@@ -161,11 +161,19 @@ module TrueType
 
       # Required tables in recommended order
       tables << {"cmap", build_cmap}
-      tables << {"glyf", build_glyf.first.to_bytes} if @parser.truetype?
+
+      if @parser.truetype?
+        # TrueType outline tables
+        tables << {"glyf", build_glyf.first.to_bytes}
+        tables << {"loca", build_loca}
+      elsif @parser.cff?
+        # CFF outline table
+        tables << {"CFF ", build_cff}
+      end
+
       tables << {"head", build_head}
       tables << {"hhea", build_hhea}
       tables << {"hmtx", build_hmtx}
-      tables << {"loca", build_loca} if @parser.truetype?
       tables << {"maxp", build_maxp}
       tables << {"name", @parser.name.to_bytes}
       tables << {"post", build_post}
@@ -177,6 +185,15 @@ module TrueType
       # Sort tables by tag (required for proper checksums)
       tables.sort_by! { |tag, _| tag }
       tables
+    end
+
+    private def build_cff : Bytes
+      cff_data = @parser.table_data("CFF ")
+      raise "No CFF table found" unless cff_data
+
+      sorted_ids = @glyph_id_map.keys.sort_by { |id| @glyph_id_map[id] }
+      subsetter = Tables::CFF::Subsetter.new(cff_data)
+      subsetter.subset(sorted_ids)
     end
 
     private def build_cmap : Bytes
@@ -200,7 +217,15 @@ module TrueType
 
     private def build_head : Bytes
       head = @parser.head
-      loca = @subset_loca || build_glyf.last
+
+      # Determine index_to_loc_format based on font type
+      index_to_loc_format = if @parser.truetype?
+                              loca = @subset_loca || build_glyf.last
+                              loca.long_format? ? 1_i16 : 0_i16
+                            else
+                              # CFF fonts don't use loca, but we keep the original value
+                              head.index_to_loc_format
+                            end
 
       # Create new head with updated loca format
       new_head = Tables::Head.new(
@@ -220,7 +245,7 @@ module TrueType
         head.mac_style,
         head.lowest_rec_ppem,
         head.font_direction_hint,
-        loca.long_format? ? 1_i16 : 0_i16,
+        index_to_loc_format,
         head.glyph_data_format
       )
       new_head.to_bytes
@@ -256,23 +281,30 @@ module TrueType
       maxp = @parser.maxp
       io = IO::Memory.new
 
-      write_uint32(io, maxp.version)
-      write_uint16(io, @glyph_id_map.size.to_u16)
+      if @parser.cff?
+        # CFF fonts use maxp version 0.5 (only version and numGlyphs)
+        write_uint32(io, 0x00005000_u32)  # version 0.5
+        write_uint16(io, @glyph_id_map.size.to_u16)
+      else
+        # TrueType fonts use maxp version 1.0
+        write_uint32(io, maxp.version)
+        write_uint16(io, @glyph_id_map.size.to_u16)
 
-      if maxp.truetype?
-        write_uint16(io, maxp.max_points || 0_u16)
-        write_uint16(io, maxp.max_contours || 0_u16)
-        write_uint16(io, maxp.max_composite_points || 0_u16)
-        write_uint16(io, maxp.max_composite_contours || 0_u16)
-        write_uint16(io, maxp.max_zones || 2_u16)
-        write_uint16(io, maxp.max_twilight_points || 0_u16)
-        write_uint16(io, maxp.max_storage || 0_u16)
-        write_uint16(io, maxp.max_function_defs || 0_u16)
-        write_uint16(io, maxp.max_instruction_defs || 0_u16)
-        write_uint16(io, maxp.max_stack_elements || 0_u16)
-        write_uint16(io, maxp.max_size_of_instructions || 0_u16)
-        write_uint16(io, maxp.max_component_elements || 0_u16)
-        write_uint16(io, maxp.max_component_depth || 0_u16)
+        if maxp.truetype?
+          write_uint16(io, maxp.max_points || 0_u16)
+          write_uint16(io, maxp.max_contours || 0_u16)
+          write_uint16(io, maxp.max_composite_points || 0_u16)
+          write_uint16(io, maxp.max_composite_contours || 0_u16)
+          write_uint16(io, maxp.max_zones || 2_u16)
+          write_uint16(io, maxp.max_twilight_points || 0_u16)
+          write_uint16(io, maxp.max_storage || 0_u16)
+          write_uint16(io, maxp.max_function_defs || 0_u16)
+          write_uint16(io, maxp.max_instruction_defs || 0_u16)
+          write_uint16(io, maxp.max_stack_elements || 0_u16)
+          write_uint16(io, maxp.max_size_of_instructions || 0_u16)
+          write_uint16(io, maxp.max_component_elements || 0_u16)
+          write_uint16(io, maxp.max_component_depth || 0_u16)
+        end
       end
 
       io.to_slice

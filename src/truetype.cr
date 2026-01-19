@@ -65,12 +65,13 @@ require "./truetype/tables/opentype/gpos"
 require "./truetype/outline"
 require "./truetype/outline_extractor"
 
-# CFF parsing
+# CFF parsing and subsetting
 require "./truetype/tables/cff/index"
 require "./truetype/tables/cff/dict"
 require "./truetype/tables/cff/table"
 require "./truetype/tables/cff/charstring"
 require "./truetype/tables/cff/font"
+require "./truetype/tables/cff/subsetter"
 
 # Main parser and subsetter
 require "./truetype/parser"
