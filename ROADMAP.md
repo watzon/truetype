@@ -16,10 +16,10 @@ The library provides a solid foundation for TrueType font parsing and subsetting
 | **Font Metrics**      | Units per em, ascender, descender, cap height, bounding box       | Complete |
 | **Glyph Metrics**     | Advance widths, glyph IDs, character widths                       | Complete |
 | **Font Info**         | PostScript name, family name, style flags (bold/italic/monospace) | Complete |
-| **Subsetting**        | Glyph subsetting with composite glyph support                     | Complete |
+| **Subsetting**        | TrueType and CFF glyph subsetting with composite glyph support    | Complete |
 | **PDF Support**       | Font descriptor flags, StemV estimation                           | Complete |
 | **Kerning**           | `kern` table (format 0, 2), kerning API, text width with kerning  | Complete |
-| **CFF/OTF**           | CFF table parsing, CharStrings, outline extraction                | Complete |
+| **CFF/OTF**           | CFF table parsing, CharStrings, outline extraction, subsetting    | Complete |
 | **WOFF**              | Header parsing, zlib decompression, sfnt conversion               | Complete |
 | **WOFF2**             | Header parsing, Brotli decompression, sfnt reconstruction         | Complete |
 | **Font Collections**  | TTC/OTC parsing, multi-font access                                | Complete |
@@ -47,7 +47,7 @@ Essential features for handling the majority of font files in the wild.
 - [x] Parse CharStrings (Type 2 charstring operators)
 - [x] Parse Subrs and GlobalSubrs
 - [x] Extract glyph outlines from CFF data
-- [ ] Support CFF-based font subsetting (future enhancement)
+- [x] Support CFF-based font subsetting (desubroutinization approach)
 
 ### Web Font Formats ✅
 
