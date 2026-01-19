@@ -52,6 +52,15 @@ module TrueType
     @cbdt : Tables::Color::CBDT?
     @sbix : Tables::Color::Sbix?
 
+    # Hinting tables (lazy loaded)
+    @cvt : Tables::Hinting::Cvt?
+    @fpgm : Tables::Hinting::Fpgm?
+    @prep : Tables::Hinting::Prep?
+    @gasp : Tables::Hinting::Gasp?
+    @ltsh : Tables::Hinting::Ltsh?
+    @hdmx : Tables::Hinting::Hdmx?
+    @vdmx : Tables::Hinting::Vdmx?
+
     # Font type (TrueType or CFF)
     getter sfnt_version : UInt32
 
@@ -444,10 +453,116 @@ module TrueType
       end
     end
 
+    # Get the cvt table (Control Value Table)
+    def cvt : Tables::Hinting::Cvt?
+      @cvt ||= begin
+        data = table_data("cvt ")
+        data ? Tables::Hinting::Cvt.parse(data) : nil
+      end
+    end
+
+    # Get the fpgm table (Font Program)
+    def fpgm : Tables::Hinting::Fpgm?
+      @fpgm ||= begin
+        data = table_data("fpgm")
+        data ? Tables::Hinting::Fpgm.parse(data) : nil
+      end
+    end
+
+    # Get the prep table (Control Value Program)
+    def prep : Tables::Hinting::Prep?
+      @prep ||= begin
+        data = table_data("prep")
+        data ? Tables::Hinting::Prep.parse(data) : nil
+      end
+    end
+
+    # Get the gasp table (Grid-fitting and Scan-conversion Procedure)
+    def gasp : Tables::Hinting::Gasp?
+      @gasp ||= begin
+        data = table_data("gasp")
+        data ? Tables::Hinting::Gasp.parse(data) : nil
+      end
+    end
+
+    # Get the LTSH table (Linear Threshold)
+    def ltsh : Tables::Hinting::Ltsh?
+      @ltsh ||= begin
+        data = table_data("LTSH")
+        data ? Tables::Hinting::Ltsh.parse(data) : nil
+      end
+    end
+
+    # Get the hdmx table (Horizontal Device Metrics)
+    def hdmx : Tables::Hinting::Hdmx?
+      @hdmx ||= begin
+        data = table_data("hdmx")
+        data ? Tables::Hinting::Hdmx.parse(data, maxp.num_glyphs) : nil
+      end
+    end
+
+    # Get the VDMX table (Vertical Device Metrics)
+    def vdmx : Tables::Hinting::Vdmx?
+      @vdmx ||= begin
+        data = table_data("VDMX")
+        data ? Tables::Hinting::Vdmx.parse(data) : nil
+      end
+    end
+
     # Check if this is a color font
     def color_font? : Bool
       has_table?("COLR") || has_table?("SVG ") ||
         has_table?("CBDT") || has_table?("sbix")
+    end
+
+    # Check if the font has TrueType hinting data
+    def has_hinting? : Bool
+      has_table?("cvt ") || has_table?("fpgm") || has_table?("prep")
+    end
+
+    # Check if the font has gasp table for rasterization hints
+    def has_gasp? : Bool
+      has_table?("gasp")
+    end
+
+    # Get the gasp behavior flags for a given ppem size
+    def gasp_behavior(ppem : UInt16) : Tables::Hinting::Gasp::Behavior
+      gasp.try(&.behavior(ppem)) || Tables::Hinting::Gasp::Behavior::None
+    end
+
+    # Check if gridfitting should be used at a given ppem
+    def gasp_gridfit?(ppem : UInt16) : Bool
+      gasp.try(&.gridfit?(ppem)) || false
+    end
+
+    # Check if grayscale rendering should be used at a given ppem
+    def gasp_grayscale?(ppem : UInt16) : Bool
+      gasp.try(&.grayscale?(ppem)) || false
+    end
+
+    # Get a control value from the CVT table
+    def control_value(index : Int32) : Int16?
+      cvt.try(&.[index]?)
+    end
+
+    # Get the number of control values
+    def control_value_count : Int32
+      cvt.try(&.size) || 0
+    end
+
+    # Check if a glyph scales linearly at a given ppem (from LTSH)
+    def glyph_linear_at?(glyph_id : UInt16, ppem : UInt8) : Bool
+      ltsh.try(&.linear_at?(glyph_id, ppem)) || false
+    end
+
+    # Get pre-computed device width for a glyph at a specific ppem (from hdmx)
+    def device_width(glyph_id : UInt16, ppem : UInt8) : UInt8?
+      hdmx.try(&.width(glyph_id, ppem))
+    end
+
+    # Get vertical device metrics bounds for a given ppem (from VDMX)
+    def vdmx_bounds(ppem : UInt16) : Tuple(Int16, Int16)?
+      vdmx.try(&.bounds(ppem))
     end
 
     # Type of color glyph available for a glyph

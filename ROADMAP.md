@@ -28,6 +28,7 @@ The library provides a comprehensive foundation for TrueType font parsing and su
 | **OpenType Layout**   | `GDEF`, `GSUB`, `GPOS` tables, feature parsing                    | Complete |
 | **Variable Fonts**    | `fvar`, `gvar`, `avar`, `HVAR`, `VVAR`, `MVAR`, `cvar`, `STAT`    | Complete |
 | **Color Fonts**       | `CPAL`, `COLR` v0/v1, `SVG `, `CBDT`/`CBLC`, `sbix`               | Complete |
+| **Hinting Tables**    | `cvt `, `fpgm`, `prep`, `gasp`, `hdmx`, `LTSH`, `VDMX`            | Complete |
 
 ---
 
@@ -277,12 +278,12 @@ Support for color emoji and decorative color fonts.
 
 Low-level features for high-quality text rendering.
 
-### Hinting Tables
+### Hinting Tables ✅
 
-- [ ] Parse `cvt ` table (control values)
-- [ ] Parse `fpgm` table (font program)
-- [ ] Parse `prep` table (control value program)
-- [ ] Parse `gasp` table (grid-fitting and anti-aliasing)
+- [x] Parse `cvt ` table (control values)
+- [x] Parse `fpgm` table (font program)
+- [x] Parse `prep` table (control value program)
+- [x] Parse `gasp` table (grid-fitting and anti-aliasing)
 
 ### TrueType Bytecode (Optional)
 
@@ -292,11 +293,11 @@ Low-level features for high-quality text rendering.
 - [ ] Point manipulation
 - [ ] Delta hints
 
-### Additional Metrics
+### Additional Metrics ✅
 
-- [ ] Parse `hdmx` table (horizontal device metrics)
-- [ ] Parse `LTSH` table (linear threshold)
-- [ ] Parse `VDMX` table (vertical device metrics)
+- [x] Parse `hdmx` table (horizontal device metrics)
+- [x] Parse `LTSH` table (linear threshold)
+- [x] Parse `VDMX` table (vertical device metrics)
 
 ---
 

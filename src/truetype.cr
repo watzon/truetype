@@ -81,6 +81,15 @@ require "./truetype/tables/color/cblc"
 require "./truetype/tables/color/cbdt"
 require "./truetype/tables/color/sbix"
 
+# Hinting tables
+require "./truetype/tables/hinting/cvt"
+require "./truetype/tables/hinting/fpgm"
+require "./truetype/tables/hinting/prep"
+require "./truetype/tables/hinting/gasp"
+require "./truetype/tables/hinting/ltsh"
+require "./truetype/tables/hinting/hdmx"
+require "./truetype/tables/hinting/vdmx"
+
 # Outline types and extraction
 require "./truetype/outline"
 require "./truetype/outline_extractor"
