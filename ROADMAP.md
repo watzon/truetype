@@ -148,41 +148,66 @@ Features required for proper typography and international text support.
 
 ---
 
-## Phase 3: Variable Fonts
+## Phase 3: Variable Fonts ✅
 
 Support for OpenType Font Variations (modern variable fonts).
 
-### Core Variation Tables
+### Core Variation Tables ✅
 
-- [ ] Parse `fvar` table
-  - [ ] Axis records (tag, min, default, max, name)
-  - [ ] Named instance records
-- [ ] Parse `STAT` table (style attributes)
-  - [ ] Axis values
-  - [ ] Axis value format 1-4
-- [ ] Parse `avar` table (axis variations/segment maps)
+- [x] Parse `fvar` table
+  - [x] Axis records (tag, min, default, max, name)
+  - [x] Named instance records
+- [x] Parse `STAT` table (style attributes)
+  - [x] Axis values
+  - [x] Axis value format 1-4
+- [x] Parse `avar` table (axis variations/segment maps)
 
-### TrueType Variations
+### TrueType Variations ✅
 
-- [ ] Parse `gvar` table
-  - [ ] Shared tuples
-  - [ ] Glyph variation data
-  - [ ] Delta interpolation
-- [ ] Parse `cvar` table (CVT variations)
+- [x] Parse `gvar` table
+  - [x] Shared tuples
+  - [x] Glyph variation data
+  - [x] Tuple scalar calculation
+  - [x] Delta interpolation for outline points
+  - [x] `compute_glyph_deltas` for computing point adjustments
+- [x] Parse `cvar` table (CVT variations)
+  - [x] Tuple variation headers
+  - [x] `compute_cvt_deltas` for interpolating CVT values
 
-### Metrics Variations
+### Metrics Variations ✅
 
-- [ ] Parse `HVAR` table (horizontal metrics variations)
-- [ ] Parse `VVAR` table (vertical metrics variations)
-- [ ] Parse `MVAR` table (miscellaneous metrics variations)
+- [x] Parse `HVAR` table (horizontal metrics variations)
+  - [x] ItemVariationStore parsing
+  - [x] DeltaSetIndexMap parsing
+  - [x] Advance width delta calculation
+  - [x] LSB/RSB delta calculation
+- [x] Parse `VVAR` table (vertical metrics variations)
+  - [x] Advance height delta calculation
+  - [x] TSB/BSB/VOrg delta calculation
+- [x] Parse `MVAR` table (miscellaneous metrics variations)
+  - [x] Value records for font-wide metrics
+  - [x] Support for all metric tags (hasc, hdsc, xhgt, cpht, etc.)
 
-### Variation API
+### Variation API ✅
 
-- [ ] Get/set axis coordinates
-- [ ] Interpolate glyph outlines at coordinates
-- [ ] Interpolate metrics at coordinates
-- [ ] Generate static instance from variable font
-- [ ] List available axes and named instances
+- [x] List available axes and named instances
+- [x] Normalize coordinates (with avar support)
+- [x] Interpolate metrics at coordinates
+  - [x] `advance_width_delta` / `interpolated_advance_width`
+  - [x] `metric_delta` for font-wide metrics
+  - [x] `interpolated_ascender` / `interpolated_descender`
+  - [x] `interpolated_x_height` / `interpolated_cap_height`
+- [x] Get/set axis coordinates via `VariationInstance` class
+  - [x] `set(tag, value)` / `get(tag)` for individual axes
+  - [x] `reset(tag)` / `reset_all` for defaults
+  - [x] Factory methods from Parser
+- [x] Interpolate glyph outlines at coordinates
+  - [x] `interpolated_glyph_outline(glyph_id, coords)`
+  - [x] Full outline with applied deltas
+- [x] Static instance generation helpers
+  - [x] `interpolated_glyph_outlines` for all glyphs
+  - [x] `interpolated_advance_widths` for all glyphs
+  - [x] `interpolated_metrics` for font-wide values
 
 ---
 

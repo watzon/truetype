@@ -61,6 +61,17 @@ require "./truetype/tables/opentype/gdef"
 require "./truetype/tables/opentype/gsub"
 require "./truetype/tables/opentype/gpos"
 
+# Variable font tables
+require "./truetype/tables/variations/fvar"
+require "./truetype/tables/variations/stat"
+require "./truetype/tables/variations/avar"
+require "./truetype/tables/variations/gvar"
+require "./truetype/tables/variations/item_variation_store"
+require "./truetype/tables/variations/hvar"
+require "./truetype/tables/variations/vvar"
+require "./truetype/tables/variations/mvar"
+require "./truetype/tables/variations/cvar"
+
 # Outline types and extraction
 require "./truetype/outline"
 require "./truetype/outline_extractor"
@@ -79,3 +90,4 @@ require "./truetype/subsetter"
 require "./truetype/font_collection"
 require "./truetype/woff"
 require "./truetype/woff2"
+require "./truetype/variation_instance"

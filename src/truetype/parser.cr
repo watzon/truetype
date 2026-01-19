@@ -34,6 +34,16 @@ module TrueType
     @gsub : Tables::OpenType::GSUB?
     @gpos : Tables::OpenType::GPOS?
 
+    # Variable font tables (lazy loaded)
+    @fvar : Tables::Variations::Fvar?
+    @stat : Tables::Variations::Stat?
+    @avar : Tables::Variations::Avar?
+    @gvar : Tables::Variations::Gvar?
+    @hvar : Tables::Variations::Hvar?
+    @vvar : Tables::Variations::Vvar?
+    @mvar : Tables::Variations::Mvar?
+    @cvar : Tables::Variations::Cvar?
+
     # Font type (TrueType or CFF)
     getter sfnt_version : UInt32
 
@@ -268,6 +278,251 @@ module TrueType
     # Check if the font supports vertical writing
     def vertical_writing? : Bool
       has_table?("vhea") && has_table?("vmtx")
+    end
+
+    # Get the fvar table (font variations)
+    def fvar : Tables::Variations::Fvar?
+      @fvar ||= begin
+        data = table_data("fvar")
+        data ? Tables::Variations::Fvar.parse(data) : nil
+      end
+    end
+
+    # Check if this is a variable font
+    def variable_font? : Bool
+      has_table?("fvar")
+    end
+
+    # Get all variation axes (empty array if not a variable font)
+    def variation_axes : Array(Tables::Variations::VariationAxisRecord)
+      fvar.try(&.axes) || [] of Tables::Variations::VariationAxisRecord
+    end
+
+    # Get all named instances (empty array if not a variable font)
+    def named_instances : Array(Tables::Variations::InstanceRecord)
+      fvar.try(&.instances) || [] of Tables::Variations::InstanceRecord
+    end
+
+    # Get the STAT table (style attributes)
+    def stat : Tables::Variations::Stat?
+      @stat ||= begin
+        data = table_data("STAT")
+        data ? Tables::Variations::Stat.parse(data) : nil
+      end
+    end
+
+    # Get the avar table (axis variations)
+    def avar : Tables::Variations::Avar?
+      @avar ||= begin
+        data = table_data("avar")
+        data ? Tables::Variations::Avar.parse(data) : nil
+      end
+    end
+
+    # Get the gvar table (glyph variations)
+    def gvar : Tables::Variations::Gvar?
+      @gvar ||= begin
+        data = table_data("gvar")
+        data ? Tables::Variations::Gvar.parse(data) : nil
+      end
+    end
+
+    # Normalize user coordinates to the [-1, 1] space with avar adjustments.
+    # Takes a hash of axis tag => user value and returns normalized coordinates
+    # in axis order as defined by fvar.
+    def normalize_variation_coordinates(user_coords : Hash(String, Float64)) : Array(Float64)?
+      fvar_table = fvar
+      return nil unless fvar_table
+
+      # First apply default normalization
+      normalized = fvar_table.normalize_coordinates(user_coords)
+
+      # Then apply avar adjustments if present
+      if avar_table = avar
+        normalized = avar_table.map_coordinates(normalized)
+      end
+
+      normalized
+    end
+
+    # Check if a glyph has variation data (for variable fonts with gvar)
+    def glyph_has_variations?(glyph_id : UInt16) : Bool
+      gvar.try(&.has_variation_data?(glyph_id)) || false
+    end
+
+    # Get the HVAR table (horizontal metrics variations)
+    def hvar : Tables::Variations::Hvar?
+      @hvar ||= begin
+        data = table_data("HVAR")
+        data ? Tables::Variations::Hvar.parse(data) : nil
+      end
+    end
+
+    # Get the VVAR table (vertical metrics variations)
+    def vvar : Tables::Variations::Vvar?
+      @vvar ||= begin
+        data = table_data("VVAR")
+        data ? Tables::Variations::Vvar.parse(data) : nil
+      end
+    end
+
+    # Get the MVAR table (miscellaneous metrics variations)
+    def mvar : Tables::Variations::Mvar?
+      @mvar ||= begin
+        data = table_data("MVAR")
+        data ? Tables::Variations::Mvar.parse(data) : nil
+      end
+    end
+
+    # Get the cvar table (CVT variations)
+    def cvar : Tables::Variations::Cvar?
+      @cvar ||= begin
+        data = table_data("cvar")
+        return nil unless data
+        fvar_table = fvar
+        return nil unless fvar_table
+        # CVT count comes from the cvt table size (each entry is 2 bytes)
+        cvt_data = table_data("cvt ")
+        cvt_count = cvt_data ? (cvt_data.size // 2).to_u16 : 0_u16
+        Tables::Variations::Cvar.parse(data, cvt_count, fvar_table.axis_count)
+      end
+    end
+
+    # Get the advance width delta for a glyph at given variation coordinates.
+    # Returns 0.0 if HVAR table is not present or coordinates are nil.
+    def advance_width_delta(glyph_id : UInt16, user_coords : Hash(String, Float64)) : Float64
+      normalized = normalize_variation_coordinates(user_coords)
+      return 0.0 unless normalized
+      hvar.try(&.advance_width_delta(glyph_id, normalized)) || 0.0
+    end
+
+    # Get the interpolated advance width for a glyph at given variation coordinates.
+    # Returns the base advance width if not a variable font or HVAR is missing.
+    def interpolated_advance_width(glyph_id : UInt16, user_coords : Hash(String, Float64)) : Int32
+      base_width = advance_width(glyph_id)
+      delta = advance_width_delta(glyph_id, user_coords)
+      (base_width + delta).round.to_i32
+    end
+
+    # Get a font-wide metric delta at given variation coordinates.
+    # Common metric tags: hasc, hdsc, hlgp, xhgt, cpht, etc.
+    # Returns 0.0 if MVAR table is not present or the metric tag is not found.
+    def metric_delta(tag : String, user_coords : Hash(String, Float64)) : Float64
+      normalized = normalize_variation_coordinates(user_coords)
+      return 0.0 unless normalized
+      mvar.try(&.metric_delta(tag, normalized)) || 0.0
+    end
+
+    # Get the interpolated ascender at given variation coordinates.
+    def interpolated_ascender(user_coords : Hash(String, Float64)) : Int16
+      base = ascender
+      delta = metric_delta("hasc", user_coords)
+      (base + delta).round.to_i16
+    end
+
+    # Get the interpolated descender at given variation coordinates.
+    def interpolated_descender(user_coords : Hash(String, Float64)) : Int16
+      base = descender
+      delta = metric_delta("hdsc", user_coords)
+      (base + delta).round.to_i16
+    end
+
+    # Get the interpolated x-height at given variation coordinates.
+    def interpolated_x_height(user_coords : Hash(String, Float64)) : Int16?
+      base = os2.try(&.sx_height)
+      return nil unless base
+      delta = metric_delta("xhgt", user_coords)
+      (base + delta).round.to_i16
+    end
+
+    # Get the interpolated cap height at given variation coordinates.
+    def interpolated_cap_height(user_coords : Hash(String, Float64)) : Int16
+      base = cap_height
+      delta = metric_delta("cpht", user_coords)
+      (base + delta).round.to_i16
+    end
+
+    # Get a glyph outline with variation deltas applied.
+    # Returns the base outline if not a variable font or glyph has no variations.
+    def interpolated_glyph_outline(glyph_id : UInt16, user_coords : Hash(String, Float64)) : GlyphOutline?
+      # Get base outline
+      base_outline = glyph_outline(glyph_id)
+      return nil unless base_outline
+      return base_outline unless variable_font?
+
+      # Normalize coordinates
+      normalized = normalize_variation_coordinates(user_coords)
+      return base_outline unless normalized
+
+      # Get gvar table
+      gvar_table = gvar
+      return base_outline unless gvar_table
+
+      # Check if glyph has variations
+      return base_outline unless gvar_table.has_variation_data?(glyph_id)
+
+      # Count total points across all contours
+      point_count = base_outline.point_count
+      return base_outline if point_count == 0
+
+      # Compute deltas
+      deltas = gvar_table.compute_glyph_deltas(glyph_id, normalized, point_count)
+      return base_outline unless deltas
+      return base_outline unless deltas.any_nonzero?
+
+      # Apply deltas to create new outline
+      apply_deltas_to_outline(base_outline, deltas)
+    end
+
+    # Apply computed deltas to a glyph outline, returning a new interpolated outline.
+    private def apply_deltas_to_outline(
+      outline : GlyphOutline,
+      deltas : Tables::Variations::Gvar::GlyphDeltas
+    ) : GlyphOutline
+      new_contours = [] of Contour
+      point_idx = 0
+
+      outline.contours.each do |contour|
+        new_points = [] of OutlinePoint
+
+        contour.points.each do |point|
+          if point_idx < deltas.size
+            new_x = (point.x + deltas.x_deltas[point_idx]).round.to_i16
+            new_y = (point.y + deltas.y_deltas[point_idx]).round.to_i16
+            new_points << OutlinePoint.new(new_x, new_y, point.type)
+          else
+            new_points << point
+          end
+          point_idx += 1
+        end
+
+        new_contours << Contour.new(new_points)
+      end
+
+      # Recalculate bounding box
+      all_points = new_contours.flat_map(&.points)
+      if all_points.empty?
+        GlyphOutline.new(new_contours, 0_i16, 0_i16, 0_i16, 0_i16, outline.composite?)
+      else
+        x_min = all_points.min_of(&.x)
+        y_min = all_points.min_of(&.y)
+        x_max = all_points.max_of(&.x)
+        y_max = all_points.max_of(&.y)
+        GlyphOutline.new(new_contours, x_min, y_min, x_max, y_max, outline.composite?)
+      end
+    end
+
+    # Create a new VariationInstance for this font.
+    # Returns a VariationInstance initialized with default axis values.
+    # For non-variable fonts, returns an instance that behaves like the static font.
+    def variation_instance : VariationInstance
+      VariationInstance.new(self)
+    end
+
+    # Create a VariationInstance from a named instance.
+    # Returns nil if the index is out of range.
+    def variation_instance(named_instance_index : Int32) : VariationInstance?
+      VariationInstance.from_named_instance(self, named_instance_index)
     end
 
     # Get the PostScript name
