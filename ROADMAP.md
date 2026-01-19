@@ -4,7 +4,11 @@
 
 ## Current Status
 
-The library provides a comprehensive foundation for TrueType font parsing and subsetting, covering approximately **85-90% of a production-ready implementation**. It's sufficient for PDF font embedding, supports web font formats, variable fonts, color fonts, CFF2 variable fonts, mathematical typesetting (MATH table), and handles virtually all font types encountered in the wild.
+The library provides a comprehensive foundation for TrueType font parsing and subsetting, covering approximately **90% of a production-ready implementation**. It's sufficient for PDF font embedding, supports web font formats, variable fonts, color fonts, CFF2 variable fonts, mathematical typesetting (MATH table), and handles virtually all font types encountered in the wild.
+
+**Remaining major features** (Phases 7-8):
+- Full OpenType text shaping for complex scripts (Arabic, Hebrew, Indic, Thai, etc.)
+- Bidirectional text support (UAX #9) for mixed LTR/RTL text
 
 ### What Works Today
 
@@ -31,6 +35,20 @@ The library provides a comprehensive foundation for TrueType font parsing and su
 | **Hinting Tables**    | `cvt `, `fpgm`, `prep`, `gasp`, `hdmx`, `LTSH`, `VDMX`            | Complete |
 | **Extended Formats**  | CFF2, MATH, BASE, JSTF, DSIG, meta, PCLT, EBLC/EBDT/EBSC          | Complete |
 | **Extended cmap**     | cmap formats 2, 13, 14 (UVS)                                       | Complete |
+| **High-Level API**    | `Font.open`, `font.shape`, `font.render`, `font.subset`, `font.instance` | Complete |
+| **Text Layout**       | Text measurement, line breaking, paragraph layout                  | Complete |
+| **Validation**        | Font validation, warnings collection, detailed error messages      | Complete |
+
+### What's NOT Yet Supported
+
+| Category | Feature | Status |
+|----------|---------|--------|
+| **Text Shaping** | Full OpenType shaping (GSUB/GPOS lookup application) | Phase 7 |
+| **Text Shaping** | Complex script shapers (Arabic, Indic, Thai, etc.) | Phase 7 |
+| **Text Shaping** | HarfBuzz integration | Phase 7 |
+| **Bidi** | Unicode Bidirectional Algorithm (UAX #9) | Phase 8 |
+| **Bidi** | Mixed LTR/RTL text layout | Phase 8 |
+| **Hinting** | TrueType bytecode interpreter | Optional |
 
 ---
 
@@ -344,35 +362,133 @@ Additional formats and specialized tables.
 
 ---
 
-## API Improvements
+## Phase 7: Text Shaping Engine
+
+Full OpenType text shaping for complex scripts. This phase aims to provide HarfBuzz-level shaping capabilities, either through native implementation or library bindings.
+
+### HarfBuzz Bindings ✅
+
+- [x] FFI bindings for core HarfBuzz types
+  - [x] `hb_blob_t` - Data blob management
+  - [x] `hb_face_t`, `hb_font_t` - Font handle types
+  - [x] `hb_buffer_t` - Text buffer management
+  - [x] `hb_feature_t` - OpenType feature specification
+  - [x] `hb_glyph_info_t`, `hb_glyph_position_t` - Output types
+  - [x] `hb_direction_t`, `hb_script_t`, `hb_language_t` - Text properties
+- [x] Crystal wrapper classes
+  - [x] `HarfBuzz::Blob` - Binary data wrapper
+  - [x] `HarfBuzz::Face` - Load from file or bytes
+  - [x] `HarfBuzz::Font` - Font with size/variations
+  - [x] `HarfBuzz::Buffer` - Text input/output
+  - [x] `HarfBuzz::Feature` - Feature tag/value with CSS-like parsing
+  - [x] `HarfBuzz::ShapingOptions` - Options struct with presets for common scripts
+  - [x] `HarfBuzz::Shaper` - High-level shaping API
+- [x] Integration with TrueType::Font
+  - [x] `font.shape_advanced(text, options)` - Full HarfBuzz shaping
+  - [x] `font.render_advanced(text, options)` - Positioned glyphs
+  - [x] `font.shape_best_effort(text, options)` - Fallback to basic shaping when HarfBuzz unavailable
+  - [x] `font.harfbuzz_font` - Reusable HarfBuzz font for efficiency
+  - [x] `TrueType.harfbuzz_available?` - Runtime availability check
+- [x] Compile-time flag: `-Dharfbuzz` to enable HarfBuzz support
+- [x] Memory management (reference counting via finalize)
+- [x] Feature presets module (`HarfBuzz::Features`)
+- [ ] Error handling (convert HarfBuzz errors to Crystal exceptions) - partial
+
+> **Note**: HarfBuzz support is optional. Compile with `-Dharfbuzz` to enable. When disabled, `shape_best_effort` falls back to basic shaping (char→glyph + kerning).
+
+---
+
+## Phase 8: Bidirectional Text Support
+
+Implementation of Unicode Bidirectional Algorithm (UAX #9) for mixed LTR/RTL text.
+
+### Character Classification
+
+- [ ] Bidi_Class property lookup for all Unicode characters
+  - [ ] Strong types: L (Left-to-Right), R (Right-to-Left), AL (Arabic Letter)
+  - [ ] Weak types: EN, ES, ET, AN, CS, NSM, BN
+  - [ ] Neutral types: B, S, WS, ON
+  - [ ] Explicit formatting types: LRE, RLE, LRO, RLO, PDF, LRI, RLI, FSI, PDI
+- [ ] Bidi_Paired_Bracket property for bracket pairing
+- [ ] Bidi_Paired_Bracket_Type (Open/Close/None)
+
+### Algorithm Implementation
+
+- [ ] **P1-P3**: Paragraph level determination
+  - [ ] Find first strong directional character
+  - [ ] Support explicit paragraph direction override
+- [ ] **X1-X8**: Explicit embedding levels
+  - [ ] LRE/RLE embedding (increase level)
+  - [ ] LRO/RLO override (force direction)
+  - [ ] PDF terminator
+  - [ ] Directional isolates (LRI, RLI, FSI, PDI)
+  - [ ] Max depth enforcement (125 levels)
+- [ ] **W1-W7**: Weak type resolution
+  - [ ] NSM inherits from preceding
+  - [ ] EN/AN context resolution
+  - [ ] Separator handling
+- [ ] **N0**: Bracket pairing
+  - [ ] Identify paired brackets
+  - [ ] Match opening/closing pairs
+  - [ ] Assign direction based on context
+- [ ] **N1-N2**: Neutral type resolution
+  - [ ] Resolve neutrals between strong types
+  - [ ] Handle isolate boundaries
+- [ ] **I1-I2**: Implicit level assignment
+  - [ ] Assign levels based on resolved types
+
+### Reordering
+
+- [ ] **L1**: Line-based reordering
+  - [ ] Break into level runs
+  - [ ] Reverse odd-level runs
+  - [ ] Handle trailing whitespace
+- [ ] **L2**: Line break handling
+- [ ] **L3-L4**: Combining mark and control character handling
+
+### Integration
+
+- [ ] `TextLayout` integration for bidi paragraphs
+- [ ] Visual-to-logical and logical-to-visual index mapping
+- [ ] Cursor movement in bidi text
+- [ ] Text selection in mixed-direction text
+
+### Testing
+
+- [ ] Pass Unicode BidiTest.txt conformance suite (500K+ test cases)
+- [ ] Pass BidiCharacterTest.txt per-character tests
+
+---
+
+## API Improvements ✅
 
 Enhancements to make the library easier to use.
 
-### High-Level API
+### High-Level API ✅
 
-- [ ] `Font.open(path)` with format auto-detection
-- [ ] `font.shape(text, features)` for text shaping
-- [ ] `font.render(text)` returning positioned glyphs
-- [ ] `font.instance(weight: 700, width: 100)` for variable fonts
-- [ ] `font.subset(chars)` with options (hints, features, etc.)
+- [x] `Font.open(path)` with format auto-detection (TTF, OTF, WOFF, WOFF2, TTC/OTC)
+- [x] `font.shape(text, features)` for text shaping with kerning and ligatures
+- [x] `font.render(text)` returning positioned glyphs with cumulative positions
+- [x] `font.instance(weight: 700, width: 100)` for variable fonts
+- [x] `font.subset(chars)` with options (hints, features, etc.)
 
-### Text Layout
+### Text Layout ✅
 
-- [ ] Basic text width calculation with kerning
-- [ ] Line breaking support
+- [x] Basic text width calculation with kerning
+- [x] Line breaking support with configurable max width
 - [ ] Bi-directional text support (UAX #9)
 - [ ] Text shaping integration (consider HarfBuzz bindings)
 
-### Error Handling
+### Error Handling ✅
 
-- [ ] Detailed parse error messages with byte offsets
-- [ ] Font validation mode
-- [ ] Graceful handling of malformed fonts
-- [ ] Warning collection for non-fatal issues
+- [x] Detailed parse error messages with byte offsets
+- [x] Font validation mode (`font.validate`)
+- [x] Graceful handling of malformed fonts
+- [x] Warning collection for non-fatal issues
 
 ### Performance
 
-- [ ] Lazy table parsing (only parse when accessed)
+- [x] Lazy table parsing (only parse when accessed)
 - [ ] Glyph outline caching
 - [ ] Memory-mapped file support for large fonts
 - [ ] Parallel table parsing (where applicable)
