@@ -4,7 +4,7 @@
 
 ## Current Status
 
-The library provides a comprehensive foundation for TrueType font parsing and subsetting, covering approximately **70-75% of a production-ready implementation**. It's sufficient for PDF font embedding, supports web font formats, variable fonts, color fonts, and handles most font types encountered in the wild.
+The library provides a comprehensive foundation for TrueType font parsing and subsetting, covering approximately **85-90% of a production-ready implementation**. It's sufficient for PDF font embedding, supports web font formats, variable fonts, color fonts, CFF2 variable fonts, mathematical typesetting (MATH table), and handles virtually all font types encountered in the wild.
 
 ### What Works Today
 
@@ -29,6 +29,8 @@ The library provides a comprehensive foundation for TrueType font parsing and su
 | **Variable Fonts**    | `fvar`, `gvar`, `avar`, `HVAR`, `VVAR`, `MVAR`, `cvar`, `STAT`    | Complete |
 | **Color Fonts**       | `CPAL`, `COLR` v0/v1, `SVG `, `CBDT`/`CBLC`, `sbix`               | Complete |
 | **Hinting Tables**    | `cvt `, `fpgm`, `prep`, `gasp`, `hdmx`, `LTSH`, `VDMX`            | Complete |
+| **Extended Formats**  | CFF2, MATH, BASE, JSTF, DSIG, meta, PCLT, EBLC/EBDT/EBSC          | Complete |
+| **Extended cmap**     | cmap formats 2, 13, 14 (UVS)                                       | Complete |
 
 ---
 
@@ -301,44 +303,44 @@ Low-level features for high-quality text rendering.
 
 ---
 
-## Phase 6: Extended Format Support
+## Phase 6: Extended Format Support ✅
 
 Additional formats and specialized tables.
 
-### CFF2 (Variable CFF)
+### CFF2 (Variable CFF) ✅
 
-- [ ] Parse CFF2 header
-- [ ] Parse VariationStore
-- [ ] Blend operators in CharStrings
-- [ ] Variable font support for CFF outlines
+- [x] Parse CFF2 header
+- [x] Parse VariationStore
+- [x] Blend operators in CharStrings
+- [x] Variable font support for CFF outlines
 
-### Legacy Bitmap Fonts
+### Legacy Bitmap Fonts ✅
 
-- [ ] Parse `EBDT` table (embedded bitmap data)
-- [ ] Parse `EBLC` table (embedded bitmap location)
-- [ ] Parse `EBSC` table (embedded bitmap scaling)
+- [x] Parse `EBDT` table (embedded bitmap data)
+- [x] Parse `EBLC` table (embedded bitmap location)
+- [x] Parse `EBSC` table (embedded bitmap scaling)
 
-### Mathematical Typesetting
+### Mathematical Typesetting ✅
 
-- [ ] Parse `MATH` table
-  - [ ] Math constants
-  - [ ] Math glyph info
-  - [ ] Math variants
-  - [ ] Math assembly
+- [x] Parse `MATH` table
+  - [x] Math constants (51 metrics)
+  - [x] Math glyph info (italics, accents, kerning)
+  - [x] Math variants (glyph construction)
+  - [x] Math assembly (glyph part records)
 
-### Additional Tables
+### Additional Tables ✅
 
-- [ ] Parse `BASE` table (baseline data)
-- [ ] Parse `JSTF` table (justification)
-- [ ] Parse `DSIG` table (digital signature)
-- [ ] Parse `meta` table (metadata)
-- [ ] Parse `PCLT` table (PCL 5)
+- [x] Parse `BASE` table (baseline data)
+- [x] Parse `JSTF` table (justification)
+- [x] Parse `DSIG` table (digital signature)
+- [x] Parse `meta` table (metadata)
+- [x] Parse `PCLT` table (PCL 5)
 
-### Extended cmap Formats
+### Extended cmap Formats ✅
 
-- [ ] cmap format 2 (mixed 8/16-bit)
-- [ ] cmap format 13 (many-to-one)
-- [ ] cmap format 14 (Unicode variation sequences)
+- [x] cmap format 2 (mixed 8/16-bit for CJK)
+- [x] cmap format 13 (many-to-one range mappings)
+- [x] cmap format 14 (Unicode Variation Sequences)
 
 ---
 

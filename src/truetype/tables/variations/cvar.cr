@@ -222,7 +222,7 @@ module TrueType
               start_val = start_tuple[i]
               end_val = end_tuple[i]
 
-              if coord < Math.min(start_val, end_val) || coord > Math.max(start_val, end_val)
+              if coord < ::Math.min(start_val, end_val) || coord > ::Math.max(start_val, end_val)
                 return 0.0
               end
 

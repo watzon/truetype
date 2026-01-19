@@ -33,6 +33,7 @@ module TrueType
     @gdef : Tables::OpenType::GDEF?
     @gsub : Tables::OpenType::GSUB?
     @gpos : Tables::OpenType::GPOS?
+    @base : Tables::OpenType::BASE?
 
     # Variable font tables (lazy loaded)
     @fvar : Tables::Variations::Fvar?
@@ -60,6 +61,25 @@ module TrueType
     @ltsh : Tables::Hinting::Ltsh?
     @hdmx : Tables::Hinting::Hdmx?
     @vdmx : Tables::Hinting::Vdmx?
+
+    # Legacy bitmap tables (lazy loaded)
+    @eblc : Tables::Bitmap::EBLC?
+    @ebdt : Tables::Bitmap::EBDT?
+    @ebsc : Tables::Bitmap::EBSC?
+
+    # Math table (lazy loaded)
+    @math : Tables::Math::MATH?
+
+    # CFF2 table (lazy loaded)
+    @cff2 : Tables::CFF2Font?
+
+    # JSTF table (lazy loaded)
+    @jstf : Tables::OpenType::JSTF?
+
+    # Metadata tables (lazy loaded)
+    @dsig : Tables::Metadata::DSIG?
+    @meta : Tables::Metadata::Meta?
+    @pclt : Tables::Metadata::PCLT?
 
     # Font type (TrueType or CFF)
     getter sfnt_version : UInt32
@@ -258,8 +278,36 @@ module TrueType
     def cff_font : Tables::CFFFont?
       @cff ||= begin
         data = table_data("CFF ")
-        data ? Tables::CFFFont.parse(data) : nil
+        return nil unless data
+        # Check if this is CFF2
+        return nil if Tables::CFF.cff2?(data)
+        Tables::CFFFont.parse(data)
       end
+    end
+
+    # Get the CFF2 font data (for variable CFF-based fonts)
+    def cff2_font : Tables::CFF2Font?
+      @cff2 ||= begin
+        data = table_data("CFF2")
+        return Tables::CFF2Font.parse(data) if data
+
+        # Check if "CFF " table is actually CFF2
+        data = table_data("CFF ")
+        return nil unless data
+        return nil unless Tables::CFF.cff2?(data)
+        Tables::CFF2Font.parse(data)
+      end
+    end
+
+    # Check if this is a CFF2 font
+    def cff2? : Bool
+      if data = table_data("CFF2")
+        return true
+      end
+      if data = table_data("CFF ")
+        return Tables::CFF.cff2?(data)
+      end
+      false
     end
 
     # Get the GDEF table (glyph definition)
@@ -290,6 +338,30 @@ module TrueType
         # Some fonts have malformed GPOS tables - fall back gracefully
         nil
       end
+    end
+
+    # Get the BASE table (baseline data)
+    def base : Tables::OpenType::BASE?
+      @base ||= begin
+        data = table_data("BASE")
+        data ? Tables::OpenType::BASE.parse(data) : nil
+      end
+    end
+
+    # Get baseline value for a script (horizontal axis)
+    # Common baseline tags: "romn" (Roman), "ideo" (Ideographic), "hang" (Hanging)
+    def baseline(script : String, baseline_tag : String) : Int16?
+      base.try(&.baseline(script, baseline_tag))
+    end
+
+    # Get baseline value for a script (vertical axis)
+    def vertical_baseline(script : String, baseline_tag : String) : Int16?
+      base.try(&.vertical_baseline(script, baseline_tag))
+    end
+
+    # Check if the font has baseline data
+    def has_baseline_data? : Bool
+      has_table?("BASE")
     end
 
     # Check if the font supports vertical writing
@@ -506,6 +578,145 @@ module TrueType
       @vdmx ||= begin
         data = table_data("VDMX")
         data ? Tables::Hinting::Vdmx.parse(data) : nil
+      end
+    end
+
+    # Get the EBLC table (Embedded Bitmap Location)
+    def eblc : Tables::Bitmap::EBLC?
+      @eblc ||= begin
+        data = table_data("EBLC")
+        data ? Tables::Bitmap::EBLC.parse(data) : nil
+      end
+    end
+
+    # Get the EBDT table (Embedded Bitmap Data)
+    def ebdt : Tables::Bitmap::EBDT?
+      @ebdt ||= begin
+        data = table_data("EBDT")
+        data ? Tables::Bitmap::EBDT.parse(data) : nil
+      end
+    end
+
+    # Get the EBSC table (Embedded Bitmap Scaling)
+    def ebsc : Tables::Bitmap::EBSC?
+      @ebsc ||= begin
+        data = table_data("EBSC")
+        data ? Tables::Bitmap::EBSC.parse(data) : nil
+      end
+    end
+
+    # Check if the font has embedded bitmap data (legacy)
+    def has_embedded_bitmaps? : Bool
+      has_table?("EBLC") && has_table?("EBDT")
+    end
+
+    # Get embedded bitmap for a glyph at given PPEM
+    def embedded_bitmap(glyph_id : UInt16, ppem : UInt8) : Tables::Bitmap::EmbeddedBitmap?
+      return nil unless eblc_table = eblc
+      return nil unless ebdt_table = ebdt
+
+      location = eblc_table.glyph_location(glyph_id, ppem)
+      return nil unless location
+
+      # Get bit depth from the bitmap size record
+      size = eblc_table.bitmap_size_for_glyph(ppem, glyph_id)
+      bit_depth = size.try(&.bit_depth) || 1_u8
+
+      ebdt_table.glyph_bitmap(location, bit_depth)
+    end
+
+    # Get the MATH table (mathematical typesetting)
+    def math : Tables::Math::MATH?
+      @math ||= begin
+        data = table_data("MATH")
+        data ? Tables::Math::MATH.parse(data) : nil
+      end
+    end
+
+    # Check if this is a math font
+    def math_font? : Bool
+      has_table?("MATH")
+    end
+
+    # Get a math constant value
+    def math_constant(c : Tables::Math::MathConstant) : Int16
+      math.try(&.constant(c)) || 0_i16
+    end
+
+    # Get italics correction for a glyph (for math)
+    def math_italics_correction(glyph_id : UInt16) : Int16?
+      math.try(&.italics_correction(glyph_id))
+    end
+
+    # Get top accent attachment for a glyph (for math)
+    def math_top_accent_attachment(glyph_id : UInt16) : Int16?
+      math.try(&.top_accent_attachment(glyph_id))
+    end
+
+    # Get math kern at specified corner and height
+    def math_kern(glyph_id : UInt16, corner : Tables::Math::MathKernCorner, height : Int16) : Int16
+      math.try(&.kern(glyph_id, corner, height)) || 0_i16
+    end
+
+    # Get vertical variants for a glyph (for stretchy math characters)
+    def math_vertical_variants(glyph_id : UInt16) : Array(Tables::Math::MathGlyphVariant)?
+      math.try(&.vertical_variants(glyph_id))
+    end
+
+    # Get horizontal variants for a glyph (for stretchy math characters)
+    def math_horizontal_variants(glyph_id : UInt16) : Array(Tables::Math::MathGlyphVariant)?
+      math.try(&.horizontal_variants(glyph_id))
+    end
+
+    # Get vertical assembly for a glyph (for building large stretchy characters)
+    def math_vertical_assembly(glyph_id : UInt16) : Tables::Math::GlyphAssembly?
+      math.try(&.vertical_assembly(glyph_id))
+    end
+
+    # Get horizontal assembly for a glyph (for building large stretchy characters)
+    def math_horizontal_assembly(glyph_id : UInt16) : Tables::Math::GlyphAssembly?
+      math.try(&.horizontal_assembly(glyph_id))
+    end
+
+    # Get the JSTF table (justification)
+    def jstf : Tables::OpenType::JSTF?
+      @jstf ||= begin
+        data = table_data("JSTF")
+        data ? Tables::OpenType::JSTF.parse(data) : nil
+      end
+    end
+
+    # Check if the font has justification data
+    def has_justification? : Bool
+      has_table?("JSTF")
+    end
+
+    # Get the DSIG table (digital signature)
+    def dsig : Tables::Metadata::DSIG?
+      @dsig ||= begin
+        data = table_data("DSIG")
+        data ? Tables::Metadata::DSIG.parse(data) : nil
+      end
+    end
+
+    # Check if the font is digitally signed
+    def signed? : Bool
+      dsig.try(&.signed?) || false
+    end
+
+    # Get the meta table (metadata)
+    def meta : Tables::Metadata::Meta?
+      @meta ||= begin
+        data = table_data("meta")
+        data ? Tables::Metadata::Meta.parse(data) : nil
+      end
+    end
+
+    # Get the PCLT table (PCL 5)
+    def pclt : Tables::Metadata::PCLT?
+      @pclt ||= begin
+        data = table_data("PCLT")
+        data ? Tables::Metadata::PCLT.parse(data) : nil
       end
     end
 

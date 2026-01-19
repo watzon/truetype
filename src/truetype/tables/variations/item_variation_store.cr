@@ -262,6 +262,32 @@ module TrueType
           @item_variation_data[outer_index.to_i].get_delta(inner_index, normalized_coords, @region_list)
         end
 
+        # Compute region scalars for a given vsindex (used by CFF2 blend)
+        # Returns an array of scalars, one per region referenced by the subtable
+        def compute_scalars(vsindex : UInt16, normalized_coords : Array(Float64)) : Array(Float64)
+          return [] of Float64 if vsindex >= @item_variation_data.size
+
+          subtable = @item_variation_data[vsindex.to_i]
+          scalars = Array(Float64).new(subtable.region_indices.size)
+
+          subtable.region_indices.each do |region_idx|
+            if region_idx < @region_list.regions.size
+              region = @region_list.regions[region_idx.to_i]
+              scalars << region.scalar(normalized_coords)
+            else
+              scalars << 0.0
+            end
+          end
+
+          scalars
+        end
+
+        # Get the number of regions for a given subtable index
+        def region_count(vsindex : UInt16) : Int32
+          return 0 if vsindex >= @item_variation_data.size
+          @item_variation_data[vsindex.to_i].region_indices.size
+        end
+
         extend IOHelpers
       end
 

@@ -60,6 +60,8 @@ require "./truetype/tables/opentype/context"
 require "./truetype/tables/opentype/gdef"
 require "./truetype/tables/opentype/gsub"
 require "./truetype/tables/opentype/gpos"
+require "./truetype/tables/opentype/base"
+require "./truetype/tables/opentype/jstf"
 
 # Variable font tables
 require "./truetype/tables/variations/fvar"
@@ -90,6 +92,22 @@ require "./truetype/tables/hinting/ltsh"
 require "./truetype/tables/hinting/hdmx"
 require "./truetype/tables/hinting/vdmx"
 
+# Legacy bitmap tables
+require "./truetype/tables/bitmap/eblc"
+require "./truetype/tables/bitmap/ebdt"
+require "./truetype/tables/bitmap/ebsc"
+
+# Math tables (for mathematical typesetting)
+require "./truetype/tables/math/constants"
+require "./truetype/tables/math/glyph_info"
+require "./truetype/tables/math/variants"
+require "./truetype/tables/math/table"
+
+# Metadata tables
+require "./truetype/tables/metadata/dsig"
+require "./truetype/tables/metadata/meta"
+require "./truetype/tables/metadata/pclt"
+
 # Outline types and extraction
 require "./truetype/outline"
 require "./truetype/outline_extractor"
@@ -101,6 +119,11 @@ require "./truetype/tables/cff/table"
 require "./truetype/tables/cff/charstring"
 require "./truetype/tables/cff/font"
 require "./truetype/tables/cff/subsetter"
+
+# CFF2 (Variable CFF) support
+require "./truetype/tables/cff/cff2_table"
+require "./truetype/tables/cff/cff2_charstring"
+require "./truetype/tables/cff/cff2_font"
 
 # Main parser and subsetter
 require "./truetype/parser"

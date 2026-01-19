@@ -24,6 +24,102 @@ module TrueType
       end
     end
 
+    # SubHeader for cmap format 2 (mixed 8/16-bit encodings)
+    struct CmapFormat2SubHeader
+      include IOHelpers
+
+      # First valid low byte for this SubHeader
+      getter first_code : UInt16
+
+      # Number of valid low bytes for this SubHeader
+      getter entry_count : UInt16
+
+      # Delta for calculating glyph ID
+      getter id_delta : Int16
+
+      # Offset to glyph index array (from this field's location)
+      getter id_range_offset : UInt16
+
+      def initialize(@first_code : UInt16, @entry_count : UInt16, @id_delta : Int16, @id_range_offset : UInt16)
+      end
+
+      def self.parse(io : IO) : CmapFormat2SubHeader
+        first_code = read_uint16(io)
+        entry_count = read_uint16(io)
+        id_delta = read_int16(io)
+        id_range_offset = read_uint16(io)
+        new(first_code, entry_count, id_delta, id_range_offset)
+      end
+
+      extend IOHelpers
+    end
+
+    # Unicode range for cmap format 14 Default UVS table
+    struct CmapUnicodeRange
+      # First value in this range (24-bit)
+      getter start_unicode_value : UInt32
+
+      # Number of additional values in this range
+      getter additional_count : UInt8
+
+      def initialize(@start_unicode_value : UInt32, @additional_count : UInt8)
+      end
+
+      # Last value in this range
+      def end_unicode_value : UInt32
+        @start_unicode_value + @additional_count
+      end
+
+      # Check if a codepoint is in this range
+      def includes?(codepoint : UInt32) : Bool
+        codepoint >= @start_unicode_value && codepoint <= end_unicode_value
+      end
+    end
+
+    # UVS mapping for cmap format 14 Non-Default UVS table
+    struct CmapUVSMapping
+      # Base Unicode value (24-bit)
+      getter unicode_value : UInt32
+
+      # Glyph ID for this variation sequence
+      getter glyph_id : UInt16
+
+      def initialize(@unicode_value : UInt32, @glyph_id : UInt16)
+      end
+    end
+
+    # Variation selector record for cmap format 14
+    struct CmapVariationSelector
+      # Variation selector codepoint (24-bit, e.g., 0xFE00-0xFE0F or 0xE0100-0xE01EF)
+      getter var_selector : UInt32
+
+      # Default UVS: ranges where the base char uses default glyph
+      getter default_uvs : Array(CmapUnicodeRange)?
+
+      # Non-default UVS: specific glyph overrides
+      getter non_default_uvs : Array(CmapUVSMapping)?
+
+      def initialize(
+        @var_selector : UInt32,
+        @default_uvs : Array(CmapUnicodeRange)?,
+        @non_default_uvs : Array(CmapUVSMapping)?
+      )
+      end
+
+      # Check if a base character uses default glyph with this variation selector
+      def default?(base_char : UInt32) : Bool
+        return false unless uvs = @default_uvs
+        uvs.any? { |range| range.includes?(base_char) }
+      end
+
+      # Get the non-default glyph ID for a base character, if any
+      def non_default_glyph(base_char : UInt32) : UInt16?
+        return nil unless uvs = @non_default_uvs
+        mapping = uvs.find { |m| m.unicode_value == base_char }
+        mapping.try(&.glyph_id)
+      end
+    end
+
     # The 'cmap' table maps character codes to glyph indices.
     # This table is required for all fonts.
     class Cmap
@@ -38,6 +134,9 @@ module TrueType
       # Parsed subtables (format -> character to glyph mapping)
       getter subtables : Hash(UInt32, Hash(UInt32, UInt16))
 
+      # Format 14 variation selectors (for Unicode variation sequences)
+      getter variation_selectors : Array(CmapVariationSelector)?
+
       # Best Unicode subtable offset (for quick access)
       @unicode_subtable_offset : UInt32?
 
@@ -45,6 +144,7 @@ module TrueType
         @version : UInt16,
         @encoding_records : Array(EncodingRecord),
         @subtables : Hash(UInt32, Hash(UInt32, UInt16)),
+        @variation_selectors : Array(CmapVariationSelector)? = nil
       )
         @unicode_subtable_offset = find_best_unicode_subtable
       end
@@ -70,16 +170,31 @@ module TrueType
 
         # Parse subtables
         subtables = Hash(UInt32, Hash(UInt32, UInt16)).new
+        variation_selectors : Array(CmapVariationSelector)? = nil
 
         encoding_records.each do |record|
           next if subtables.has_key?(record.offset)
 
           subtable_io = IO::Memory.new(raw_data[record.offset..])
-          mapping = parse_subtable(subtable_io, raw_data, record.offset)
-          subtables[record.offset] = mapping if mapping
+          format = peek_format(subtable_io)
+
+          if format == 14
+            # Format 14 is special - it stores variation sequences
+            variation_selectors = parse_format14(subtable_io, raw_data, record.offset)
+          else
+            mapping = parse_subtable(subtable_io, raw_data, record.offset)
+            subtables[record.offset] = mapping if mapping
+          end
         end
 
-        new(version, encoding_records, subtables)
+        new(version, encoding_records, subtables, variation_selectors)
+      end
+
+      # Peek at the format number without consuming it
+      private def self.peek_format(io : IO) : UInt16
+        format = read_uint16(io)
+        io.seek(io.pos - 2)
+        format
       end
 
       # Parse a cmap subtable based on its format
@@ -89,12 +204,16 @@ module TrueType
         case format
         when 0
           parse_format0(io)
+        when 2
+          parse_format2(io, raw_data, offset)
         when 4
           parse_format4(io, raw_data, offset)
         when 6
           parse_format6(io)
         when 12
           parse_format12(io)
+        when 13
+          parse_format13(io)
         else
           # Unsupported format, skip
           nil
@@ -111,6 +230,103 @@ module TrueType
           glyph_id = read_uint8(io)
           mapping[i.to_u32] = glyph_id.to_u16 if glyph_id != 0
         end
+        mapping
+      end
+
+      # Format 2: High byte mapping through table (mixed 8/16-bit CJK encodings)
+      # This format supports encodings where certain byte values signal
+      # the first byte of a 2-byte character.
+      private def self.parse_format2(io : IO, raw_data : Bytes, table_offset : UInt32) : Hash(UInt32, UInt16)
+        _length = read_uint16(io)
+        _language = read_uint16(io)
+
+        # Read subHeaderKeys array (256 entries, each is subHeader index × 8)
+        sub_header_keys = Array(UInt16).new(256)
+        256.times { sub_header_keys << read_uint16(io) }
+
+        # Calculate number of subHeaders based on max key value
+        max_key = sub_header_keys.max
+        num_sub_headers = (max_key // 8) + 1
+
+        # Record position where subHeaders start
+        sub_headers_start = io.pos
+
+        # Read all subHeaders
+        sub_headers = Array(CmapFormat2SubHeader).new(num_sub_headers.to_i)
+        num_sub_headers.times do
+          sub_headers << CmapFormat2SubHeader.parse(io)
+        end
+
+        # The glyphIdArray immediately follows the subHeaders
+        glyph_id_array_start = io.pos
+
+        mapping = Hash(UInt32, UInt16).new
+
+        # Process single-byte characters (subHeaderKeys[i] == 0 means use subHeader 0)
+        # SubHeader 0 is special: used for single-byte character codes
+        if sub_headers.size > 0
+          sub_header0 = sub_headers[0]
+
+          # For single-byte: high byte is 0, use subHeader 0
+          sub_header0.entry_count.times do |i|
+            low_byte = sub_header0.first_code + i
+            next if low_byte > 255
+
+            # Calculate offset to glyph ID
+            if sub_header0.id_range_offset != 0
+              # Offset from the idRangeOffset field location
+              id_range_offset_pos = sub_headers_start + 6 # After firstCode, entryCount, idDelta
+              glyph_offset = id_range_offset_pos + sub_header0.id_range_offset + (i * 2)
+
+              if glyph_offset + 1 < raw_data.size
+                glyph_io = IO::Memory.new(raw_data[glyph_offset..])
+                glyph_id = read_uint16(glyph_io)
+                if glyph_id != 0
+                  glyph_id = ((glyph_id.to_i32 + sub_header0.id_delta.to_i32) & 0xFFFF).to_u16
+                  mapping[low_byte.to_u32] = glyph_id
+                end
+              end
+            end
+          end
+        end
+
+        # Process two-byte characters
+        256.times do |high_byte|
+          key = sub_header_keys[high_byte]
+          sub_header_index = key // 8
+
+          # Skip if this high byte uses subHeader 0 (single-byte)
+          next if sub_header_index == 0
+          next if sub_header_index >= sub_headers.size
+
+          sub_header = sub_headers[sub_header_index]
+
+          sub_header.entry_count.times do |i|
+            low_byte = sub_header.first_code + i
+            next if low_byte > 255
+
+            # Compose the 2-byte character code
+            char_code = (high_byte.to_u32 << 8) | low_byte.to_u32
+
+            if sub_header.id_range_offset != 0
+              # Calculate offset to glyph ID
+              # idRangeOffset is relative to its own position in the subHeader
+              sub_header_pos = sub_headers_start + (sub_header_index * 8)
+              id_range_offset_pos = sub_header_pos + 6 # Offset to idRangeOffset field
+              glyph_offset = id_range_offset_pos + sub_header.id_range_offset + (i * 2)
+
+              if glyph_offset + 1 < raw_data.size
+                glyph_io = IO::Memory.new(raw_data[glyph_offset..])
+                glyph_id = read_uint16(glyph_io)
+                if glyph_id != 0
+                  glyph_id = ((glyph_id.to_i32 + sub_header.id_delta.to_i32) & 0xFFFF).to_u16
+                  mapping[char_code] = glyph_id
+                end
+              end
+            end
+          end
+        end
+
         mapping
       end
 
@@ -224,6 +440,85 @@ module TrueType
         mapping
       end
 
+      # Format 13: Many-to-one range mappings
+      # Used for "last-resort" fonts where the same glyph is used for many characters.
+      # Same structure as format 12, but all chars in range map to the SAME glyph ID.
+      private def self.parse_format13(io : IO) : Hash(UInt32, UInt16)
+        _reserved = read_uint16(io)
+        _length = read_uint32(io)
+        _language = read_uint32(io)
+        num_groups = read_uint32(io)
+
+        mapping = Hash(UInt32, UInt16).new
+
+        num_groups.times do
+          start_char_code = read_uint32(io)
+          end_char_code = read_uint32(io)
+          glyph_id = read_uint32(io).to_u16 # Same glyph for entire range
+
+          (start_char_code..end_char_code).each do |code|
+            mapping[code] = glyph_id if glyph_id != 0
+          end
+        end
+
+        mapping
+      end
+
+      # Format 14: Unicode Variation Sequences
+      # Returns variation selectors instead of a regular mapping.
+      private def self.parse_format14(io : IO, raw_data : Bytes, table_offset : UInt32) : Array(CmapVariationSelector)
+        format = read_uint16(io) # Should be 14
+        length = read_uint32(io)
+        num_var_selector_records = read_uint32(io)
+
+        variation_selectors = Array(CmapVariationSelector).new(num_var_selector_records.to_i)
+
+        num_var_selector_records.times do
+          # Read 24-bit variation selector
+          var_selector = read_uint24(io)
+          default_uvs_offset = read_uint32(io)
+          non_default_uvs_offset = read_uint32(io)
+
+          # Parse default UVS table (if present)
+          default_uvs : Array(CmapUnicodeRange)? = nil
+          if default_uvs_offset != 0
+            uvs_io = IO::Memory.new(raw_data[(table_offset + default_uvs_offset).to_i..])
+            num_ranges = read_uint32(uvs_io)
+            default_uvs = Array(CmapUnicodeRange).new(num_ranges.to_i)
+            num_ranges.times do
+              start_unicode_value = read_uint24(uvs_io)
+              additional_count = read_uint8(uvs_io)
+              default_uvs << CmapUnicodeRange.new(start_unicode_value, additional_count)
+            end
+          end
+
+          # Parse non-default UVS table (if present)
+          non_default_uvs : Array(CmapUVSMapping)? = nil
+          if non_default_uvs_offset != 0
+            uvs_io = IO::Memory.new(raw_data[(table_offset + non_default_uvs_offset).to_i..])
+            num_mappings = read_uint32(uvs_io)
+            non_default_uvs = Array(CmapUVSMapping).new(num_mappings.to_i)
+            num_mappings.times do
+              unicode_value = read_uint24(uvs_io)
+              glyph_id = read_uint16(uvs_io)
+              non_default_uvs << CmapUVSMapping.new(unicode_value, glyph_id)
+            end
+          end
+
+          variation_selectors << CmapVariationSelector.new(var_selector, default_uvs, non_default_uvs)
+        end
+
+        variation_selectors
+      end
+
+      # Read 24-bit unsigned integer (big-endian)
+      private def self.read_uint24(io : IO) : UInt32
+        b0 = read_uint8(io).to_u32
+        b1 = read_uint8(io).to_u32
+        b2 = read_uint8(io).to_u32
+        (b0 << 16) | (b1 << 8) | b2
+      end
+
       # Find the best Unicode subtable
       private def find_best_unicode_subtable : UInt32?
         # Prefer format 12 (full Unicode) over format 4 (BMP)
@@ -268,6 +563,59 @@ module TrueType
       # Get the glyph ID for a character
       def glyph_id(char : Char) : UInt16?
         glyph_id(char.ord.to_u32)
+      end
+
+      # Get the glyph ID for a Unicode codepoint with an optional variation selector.
+      # This handles Unicode Variation Sequences (UVS) for emoji skin tones,
+      # CJK character variants, etc.
+      #
+      # Examples of variation selectors:
+      # - U+FE00-U+FE0F: Text vs emoji presentation (VS1-VS16)
+      # - U+E0100-U+E01EF: CJK ideographic variation selectors (VS17-VS256)
+      #
+      # Returns the appropriate glyph ID for the variation sequence, or
+      # the default glyph ID if no variation selector is provided or
+      # the sequence is a "default" UVS.
+      def glyph_id(codepoint : UInt32, variation_selector : UInt32?) : UInt16?
+        # If no variation selector, use regular lookup
+        return glyph_id(codepoint) unless variation_selector
+
+        # Check if we have format 14 data
+        if selectors = @variation_selectors
+          # Find the matching variation selector record
+          selector_record = selectors.find { |s| s.var_selector == variation_selector }
+
+          if selector_record
+            # First check non-default UVS (specific glyph override)
+            if non_default_glyph = selector_record.non_default_glyph(codepoint)
+              return non_default_glyph
+            end
+
+            # Check if it's a default UVS (use regular glyph)
+            if selector_record.default?(codepoint)
+              return glyph_id(codepoint)
+            end
+          end
+        end
+
+        # Fall back to regular lookup if no variation sequence matched
+        glyph_id(codepoint)
+      end
+
+      # Get the glyph ID for a character with an optional variation selector
+      def glyph_id(char : Char, variation_selector : Char?) : UInt16?
+        vs = variation_selector.try(&.ord.to_u32)
+        glyph_id(char.ord.to_u32, vs)
+      end
+
+      # Check if the font supports Unicode Variation Sequences
+      def has_variation_sequences? : Bool
+        !@variation_selectors.nil? && !@variation_selectors.not_nil!.empty?
+      end
+
+      # Get all supported variation selectors
+      def supported_variation_selectors : Array(UInt32)
+        @variation_selectors.try(&.map(&.var_selector)) || [] of UInt32
       end
 
       # Get the Unicode to glyph mapping
@@ -336,8 +684,8 @@ module TrueType
 
         seg_count = segments.size
         seg_count_x2 = seg_count * 2
-        search_range = 2 * (2 ** Math.log2(seg_count).floor.to_i)
-        entry_selector = Math.log2(search_range / 2).floor.to_i
+        search_range = 2 * (2 ** ::Math.log2(seg_count).floor.to_i)
+        entry_selector = ::Math.log2(search_range / 2).floor.to_i
         range_shift = seg_count_x2 - search_range
 
         # Calculate length

@@ -127,7 +127,7 @@ module TrueType
           0.0
         end
 
-        # Get integer value
+        # Get integer value by raw key
         def int(key : Int32, default : Int32 = 0) : Int32
           value = @entries[key]?
           case value
@@ -135,6 +135,16 @@ module TrueType
           when Float64 then value.to_i32
           else              default
           end
+        end
+
+        # Get integer value by DictOp enum
+        def int(key : DictOp, default : Int32 = 0) : Int32
+          int(key.value, default)
+        end
+
+        # Alias for int with raw value (for CFF2 operators)
+        def int_by_value(key : Int32, default : Int32 = 0) : Int32
+          int(key, default)
         end
 
         # Get float value
