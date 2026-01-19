@@ -72,6 +72,15 @@ require "./truetype/tables/variations/vvar"
 require "./truetype/tables/variations/mvar"
 require "./truetype/tables/variations/cvar"
 
+# Color font tables
+require "./truetype/tables/color/cpal"
+require "./truetype/tables/color/colr"
+require "./truetype/tables/color/paint"
+require "./truetype/tables/color/svg"
+require "./truetype/tables/color/cblc"
+require "./truetype/tables/color/cbdt"
+require "./truetype/tables/color/sbix"
+
 # Outline types and extraction
 require "./truetype/outline"
 require "./truetype/outline_extractor"

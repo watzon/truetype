@@ -44,6 +44,14 @@ module TrueType
     @mvar : Tables::Variations::Mvar?
     @cvar : Tables::Variations::Cvar?
 
+    # Color font tables (lazy loaded)
+    @cpal : Tables::Color::CPAL?
+    @colr : Tables::Color::COLR?
+    @svg : Tables::Color::SVG?
+    @cblc : Tables::Color::CBLC?
+    @cbdt : Tables::Color::CBDT?
+    @sbix : Tables::Color::Sbix?
+
     # Font type (TrueType or CFF)
     getter sfnt_version : UInt32
 
@@ -386,6 +394,164 @@ module TrueType
         cvt_count = cvt_data ? (cvt_data.size // 2).to_u16 : 0_u16
         Tables::Variations::Cvar.parse(data, cvt_count, fvar_table.axis_count)
       end
+    end
+
+    # Get the CPAL table (color palette)
+    def cpal : Tables::Color::CPAL?
+      @cpal ||= begin
+        data = table_data("CPAL")
+        data ? Tables::Color::CPAL.parse(data) : nil
+      end
+    end
+
+    # Get the COLR table (color glyph definitions)
+    def colr : Tables::Color::COLR?
+      @colr ||= begin
+        data = table_data("COLR")
+        data ? Tables::Color::COLR.parse(data) : nil
+      end
+    end
+
+    # Get the SVG table (SVG glyph documents)
+    def svg : Tables::Color::SVG?
+      @svg ||= begin
+        data = table_data("SVG ")
+        data ? Tables::Color::SVG.parse(data) : nil
+      end
+    end
+
+    # Get the CBLC table (color bitmap location)
+    def cblc : Tables::Color::CBLC?
+      @cblc ||= begin
+        data = table_data("CBLC")
+        data ? Tables::Color::CBLC.parse(data) : nil
+      end
+    end
+
+    # Get the CBDT table (color bitmap data)
+    def cbdt : Tables::Color::CBDT?
+      @cbdt ||= begin
+        data = table_data("CBDT")
+        data ? Tables::Color::CBDT.parse(data) : nil
+      end
+    end
+
+    # Get the sbix table (Apple color bitmaps)
+    def sbix : Tables::Color::Sbix?
+      @sbix ||= begin
+        data = table_data("sbix")
+        data ? Tables::Color::Sbix.parse(data, maxp.num_glyphs) : nil
+      end
+    end
+
+    # Check if this is a color font
+    def color_font? : Bool
+      has_table?("COLR") || has_table?("SVG ") ||
+        has_table?("CBDT") || has_table?("sbix")
+    end
+
+    # Type of color glyph available for a glyph
+    enum ColorGlyphType
+      # COLR v0 layered color glyphs
+      Layered
+      # COLR v1 paint graph
+      Paint
+      # SVG document
+      SVG
+      # Bitmap (CBDT/CBLC or sbix)
+      Bitmap
+    end
+
+    # Get the type of color glyph available for a glyph
+    def color_glyph_type(glyph_id : UInt16) : ColorGlyphType?
+      # Check SVG first (highest quality)
+      if svg_table = svg
+        return ColorGlyphType::SVG if svg_table.has_svg?(glyph_id)
+      end
+
+      # Check COLR
+      if colr_table = colr
+        if colr_table.v1? && colr_table.has_paint?(glyph_id)
+          return ColorGlyphType::Paint
+        elsif colr_table.has_layers?(glyph_id)
+          return ColorGlyphType::Layered
+        end
+      end
+
+      # Check bitmaps (CBDT/CBLC)
+      if cblc_table = cblc
+        cblc_table.available_sizes.each do |ppem|
+          return ColorGlyphType::Bitmap if cblc_table.has_bitmap?(glyph_id, ppem)
+        end
+      end
+
+      # Check sbix
+      if sbix_table = sbix
+        sbix_table.available_sizes.each do |ppem|
+          return ColorGlyphType::Bitmap if sbix_table.has_glyph?(glyph_id, ppem)
+        end
+      end
+
+      nil
+    end
+
+    # Check if a glyph has color data
+    def has_color_glyph?(glyph_id : UInt16) : Bool
+      color_glyph_type(glyph_id) != nil
+    end
+
+    # Get the SVG document for a color glyph
+    def color_glyph_svg(glyph_id : UInt16) : String?
+      svg.try(&.svg_document(glyph_id))
+    end
+
+    # Get the COLR layers for a color glyph (v0)
+    def color_glyph_layers(glyph_id : UInt16) : Array(Tables::Color::LayerRecord)?
+      colr.try(&.layers(glyph_id))
+    end
+
+    # Get the color bitmap for a glyph at a given PPEM size
+    # Tries CBDT/CBLC first, then sbix
+    def color_glyph_bitmap(glyph_id : UInt16, ppem : UInt8) : Tables::Color::ColorBitmap?
+      # Try CBDT/CBLC first
+      if cblc_table = cblc
+        if cbdt_table = cbdt
+          location = cblc_table.glyph_location(glyph_id, ppem)
+          if location
+            bitmap = cbdt_table.glyph_bitmap(location)
+            return bitmap if bitmap
+          end
+        end
+      end
+
+      # Try sbix
+      if sbix_table = sbix
+        glyph_data = sbix_table.glyph_data(glyph_id, ppem)
+        if glyph_data && !glyph_data.dupe?
+          # Convert sbix glyph data to ColorBitmap
+          return Tables::Color::ColorBitmap.new(
+            0_u8, 0_u8, # Width/height not stored in sbix
+            glyph_data.origin_offset_x.to_i8,
+            glyph_data.origin_offset_y.to_i8,
+            0_u8, # Advance not stored in sbix
+            glyph_data.png? ? Tables::Color::ImageFormat::SmallMetricsPNG :
+              Tables::Color::ImageFormat::SmallMetricsByteAligned,
+            glyph_data.data
+          )
+        end
+      end
+
+      nil
+    end
+
+    # Get a color from the CPAL palette
+    def palette_color(palette_index : Int, entry_index : Int) : Tables::Color::ColorRecord?
+      cpal.try(&.color(palette_index, entry_index))
+    end
+
+    # Get a color from the default (first) palette
+    def palette_color(entry_index : Int) : Tables::Color::ColorRecord?
+      cpal.try(&.color(entry_index))
     end
 
     # Get the advance width delta for a glyph at given variation coordinates.
