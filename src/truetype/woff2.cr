@@ -1,4 +1,6 @@
 require "brotli"
+require "./woff2_glyf_transform"
+require "./woff2_hmtx_transform"
 
 module TrueType
   # WOFF2 table directory entry
@@ -31,9 +33,21 @@ module TrueType
 
     # Check if table has transform
     def transformed? : Bool
-      # Transform version is in bits 6-7
+      tag = table_tag
       transform_version = (@flags >> 6) & 0x03
-      transform_version != 3 # 3 means no transform
+
+      # For glyf and loca tables, version 3 means null transform
+      # For other tables, version 0 means null transform
+      if tag == "glyf" || tag == "loca"
+        transform_version != 3
+      else
+        transform_version != 0
+      end
+    end
+
+    # Get transform version (0-3)
+    def transform_version : UInt8
+      (@flags >> 6) & 0x03
     end
 
     # Known table tags (index 0-62)
@@ -129,8 +143,9 @@ module TrueType
     getter data : Bytes
     getter header : Woff2Header
     getter tables : Array(Woff2TableEntry)
+    @compressed_offset : Int32
 
-    def initialize(@data : Bytes, @header : Woff2Header, @tables : Array(Woff2TableEntry))
+    def initialize(@data : Bytes, @header : Woff2Header, @tables : Array(Woff2TableEntry), @compressed_offset : Int32)
     end
 
     def self.parse(path : String) : Woff2
@@ -148,7 +163,8 @@ module TrueType
       end
 
       tables = parse_table_directory(io, header.num_tables)
-      new(data, header, tables)
+      compressed_offset = io.pos.to_i
+      new(data, header, tables, compressed_offset)
     end
 
     def self.woff2?(data : Bytes) : Bool
@@ -185,8 +201,7 @@ module TrueType
     # Convert WOFF2 to standard sfnt format
     def to_sfnt : Bytes
       # Decompress the compressed data stream
-      compressed_offset = calculate_compressed_offset
-      compressed_data = @data[compressed_offset, @header.total_compressed_size]
+      compressed_data = @data[@compressed_offset, @header.total_compressed_size]
       decompressed = decompress_brotli(compressed_data)
 
       # Reconstruct sfnt from decompressed tables
@@ -203,6 +218,7 @@ module TrueType
       num_tables.times do
         flags = read_uint8(io)
         tag_index = flags & 0x3F
+        transform_version = (flags >> 6) & 0x03
 
         tag = if tag_index == 63
                 read_tag(io)
@@ -210,10 +226,21 @@ module TrueType
                 nil
               end
 
+        # Get the table tag to determine transform rules
+        table_tag = tag || Woff2TableEntry::KNOWN_TAGS[tag_index]? || "????"
+
         orig_length = read_uint_base128(io)
 
-        transform_length = if (flags >> 6) & 0x03 != 3
-                             # Has transform
+        # transformLength is present if and only if the table has a non-null transform:
+        # - For glyf/loca: version != 3 means transformed (0 = transform applied)
+        # - For other tables: version != 0 means transformed
+        has_transform = if table_tag == "glyf" || table_tag == "loca"
+                          transform_version != 3
+                        else
+                          transform_version != 0
+                        end
+
+        transform_length = if has_transform
                              read_uint_base128(io)
                            else
                              nil
@@ -234,31 +261,6 @@ module TrueType
         return result if (byte & 0x80) == 0
       end
       raise ParseError.new("Invalid UIntBase128 encoding")
-    end
-
-    private def calculate_compressed_offset : Int32
-      # Header is 48 bytes
-      offset = 48
-
-      # Add table directory size
-      @tables.each do |table|
-        offset += 1 # flags
-        offset += 4 if (table.flags & 0x3F) == 63 # custom tag
-        offset += uint_base128_size(table.orig_length)
-        if table.transform_length
-          offset += uint_base128_size(table.transform_length.not_nil!)
-        end
-      end
-
-      offset
-    end
-
-    private def uint_base128_size(value : UInt32) : Int32
-      return 1 if value < 128
-      return 2 if value < 16384
-      return 3 if value < 2097152
-      return 4 if value < 268435456
-      5
     end
 
     private def decompress_brotli(data : Bytes) : Bytes
@@ -323,39 +325,153 @@ module TrueType
     end
 
     private def extract_tables(decompressed : Bytes) : Array(Bytes)
-      result = [] of Bytes
+      result = Array(Bytes).new(@tables.size)
+      raw_table_data = Hash(String, Bytes).new
+
+      # First pass: extract raw table data and find table indices
+      table_indices = Hash(String, Int32).new
+      glyf_transformed = false
+      hmtx_transformed = false
+
       offset = 0
+      @tables.each_with_index do |table, i|
+        tag = table.table_tag
+        table_indices[tag] = i
 
-      @tables.each do |table|
         length = table.transform_length || table.orig_length
-        table_bytes = decompressed[offset, length]
-
-        # Handle table transforms
-        if table.transformed?
-          table_bytes = reverse_transform(table, table_bytes, table.orig_length)
-        end
-
-        result << table_bytes
+        raw_table_data[tag] = decompressed[offset, length.to_i]
         offset += length.to_i
+
+        glyf_transformed = true if tag == "glyf" && table.transformed?
+        hmtx_transformed = true if tag == "hmtx" && table.transformed?
+      end
+
+      # Pre-populate result array
+      @tables.size.times { result << Bytes.empty }
+
+      # Cache for reconstructed data and extracted metadata
+      reconstructed_glyf : Bytes? = nil
+      reconstructed_loca : Bytes? = nil
+      x_mins : Array(Int16)? = nil
+      num_glyphs : UInt16 = 0
+      num_hmetrics : UInt16 = 0
+
+      # Second pass: process tables in dependency order
+      # Order: maxp -> hhea -> glyf/loca -> hmtx -> others
+      @tables.each_with_index do |table, i|
+        tag = table.table_tag
+        table_bytes = raw_table_data[tag]
+
+        case tag
+        when "maxp"
+          # Extract numGlyphs from maxp (offset 4, UInt16)
+          if table_bytes.size >= 6
+            io = IO::Memory.new(table_bytes)
+            io.skip(4) # version
+            num_glyphs = read_uint16(io)
+          end
+          result[i] = table_bytes
+
+        when "hhea"
+          # Extract numberOfHMetrics from hhea (offset 34, UInt16)
+          if table_bytes.size >= 36
+            io = IO::Memory.new(table_bytes)
+            io.skip(34)
+            num_hmetrics = read_uint16(io)
+          end
+          result[i] = table_bytes
+
+        when "glyf"
+          if glyf_transformed
+            # Reconstruct glyf and loca together from transformed data
+            transform = Woff2GlyfTransform.new
+            reconstructed_glyf, reconstructed_loca = transform.reconstruct(table_bytes)
+            result[i] = reconstructed_glyf.not_nil!
+
+            # Extract x_mins from reconstructed glyf for hmtx transform
+            x_mins = extract_x_mins(reconstructed_glyf.not_nil!, reconstructed_loca.not_nil!, num_glyphs)
+          else
+            result[i] = table_bytes
+
+            # Extract x_mins from original glyf/loca
+            if loca_idx = table_indices["loca"]?
+              loca_data = raw_table_data["loca"]
+              x_mins = extract_x_mins(table_bytes, loca_data, num_glyphs)
+            end
+          end
+
+        when "loca"
+          if glyf_transformed
+            # loca was already reconstructed with glyf
+            if reconstructed_loca
+              result[i] = reconstructed_loca.not_nil!
+            else
+              result[i] = table_bytes
+            end
+          else
+            result[i] = table_bytes
+          end
+
+        when "hmtx"
+          if hmtx_transformed && x_mins
+            # Reconstruct hmtx from transformed data
+            transform = Woff2HmtxTransform.new
+            result[i] = transform.reconstruct(table_bytes, num_glyphs, num_hmetrics, x_mins.not_nil!)
+          else
+            result[i] = table_bytes
+          end
+
+        else
+          result[i] = table_bytes
+        end
       end
 
       result
     end
 
-    private def reverse_transform(table : Woff2TableEntry, data : Bytes, orig_length : UInt32) : Bytes
-      tag = table.table_tag
+    # Extract xMin values from glyf table for hmtx reconstruction
+    private def extract_x_mins(glyf_data : Bytes, loca_data : Bytes, num_glyphs : UInt16) : Array(Int16)
+      x_mins = Array(Int16).new(num_glyphs.to_i, 0_i16)
 
-      case tag
-      when "glyf", "loca"
-        # glyf/loca have special transforms - for now return as-is
-        # Full implementation would reconstruct from transformed format
-        data
-      when "hmtx"
-        # hmtx transform - return as-is for now
-        data
-      else
-        data
+      # Determine loca format from size
+      # Short format: (numGlyphs + 1) * 2 bytes
+      # Long format: (numGlyphs + 1) * 4 bytes
+      expected_short = (num_glyphs.to_i + 1) * 2
+      long_format = loca_data.size != expected_short
+
+      loca_io = IO::Memory.new(loca_data)
+
+      num_glyphs.times do |i|
+        # Get glyph offset
+        offset = if long_format
+          read_uint32(loca_io).to_i
+        else
+          read_uint16(loca_io).to_i * 2
+        end
+
+        # Save position to read next offset
+        saved_pos = loca_io.pos
+
+        # Get next offset to determine length
+        next_offset = if long_format
+          read_uint32(loca_io).to_i
+        else
+          read_uint16(loca_io).to_i * 2
+        end
+
+        # Restore to continue iteration
+        loca_io.pos = saved_pos
+
+        length = next_offset - offset
+        if length > 0 && offset + 10 <= glyf_data.size
+          # Read xMin from glyph header (offset 2, Int16)
+          glyph_io = IO::Memory.new(glyf_data[offset, 10])
+          glyph_io.skip(2) # numberOfContours
+          x_mins[i] = read_int16(glyph_io)
+        end
       end
+
+      x_mins
     end
 
     private def calculate_checksum(data : Bytes) : UInt32

@@ -59,7 +59,8 @@ Essential features for handling the majority of font files in the wild.
   - [x] Parse WOFF2 header
   - [x] Brotli decompression
   - [x] Reconstruct sfnt from compressed data
-  - [ ] Full glyf/loca transform reconstruction (partial - returns data as-is)
+  - [x] Full glyf/loca transform reconstruction
+  - [x] hmtx transform reconstruction
 
 ### Font Collections ✅
 
