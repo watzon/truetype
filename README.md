@@ -103,6 +103,13 @@ font = TrueType::Font.open(data)
 fonts = TrueType::Font.open_collection("collection.ttc")
 fonts.each { |f| puts f.name }
 
+# Check if data is a valid font before opening
+TrueType::Font.font?("font.ttf")  # => true
+TrueType::Font.font?(data)        # Check bytes directly
+
+# Detect font format without parsing
+TrueType::Font.detect_format(data)  # => :ttf, :otf, :woff, :woff2, :collection
+
 # Access font properties
 puts font.name           # Family name
 puts font.style          # Style (Regular, Bold, etc.)
@@ -186,7 +193,7 @@ require "truetype"
 
 font = TrueType::Font.open("font.ttf")
 
-# Check if HarfBuzz is available
+# Check if HarfBuzz is available at runtime
 if TrueType.harfbuzz_available?
   # Full HarfBuzz shaping for complex scripts
   glyphs = font.shape_advanced("مرحبا بالعالم")  # Arabic text
@@ -378,10 +385,13 @@ font.valid?  # => true/false
 
 ### Low-Level API
 
-For advanced use cases, access the parser directly:
+For advanced use cases, access the parser directly. You can also create a `Font` from an existing parser:
 
 ```crystal
 parser = TrueType::Parser.parse("font.ttf")
+
+# Create a Font from an existing parser (useful for low-level work)
+font = TrueType::Font.from_parser(parser)
 
 # Access individual tables
 parser.head.units_per_em
