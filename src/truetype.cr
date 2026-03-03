@@ -10,12 +10,12 @@
 # require "truetype"
 #
 # # Open any font format with auto-detection
-# font = TrueType::Font.open("path/to/font.ttf")  # or .otf, .woff, .woff2, .ttc
+# font = TrueType::Font.open("path/to/font.ttf") # or .otf, .woff, .woff2, .ttc
 #
 # # Access font information
-# puts font.name              # "DejaVu Sans"
-# puts font.postscript_name   # "DejaVuSans"
-# puts font.units_per_em      # 2048
+# puts font.name            # "DejaVu Sans"
+# puts font.postscript_name # "DejaVuSans"
+# puts font.units_per_em    # 2048
 #
 # # Shape text (with kerning and basic layout)
 # glyphs = font.shape("Hello!")
@@ -155,6 +155,8 @@ require "./truetype/woff"
 require "./truetype/woff2"
 require "./truetype/variation_instance"
 require "./truetype/font"
+require "./truetype/bidi_data"
+require "./truetype/bidi"
 require "./truetype/text_layout"
 
 # Optional HarfBuzz support (compile with -Dharfbuzz)

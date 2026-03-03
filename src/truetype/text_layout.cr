@@ -1,13 +1,10 @@
 # Text layout module for TrueType fonts.
 #
-# Provides basic text layout capabilities including:
+# Provides text layout capabilities including:
 # - Text measurement with kerning
 # - Line breaking
-# - Text alignment
+# - Bidi-aware line shaping and reordering
 # - Basic paragraph layout
-#
-# For full international text support (bidi, complex scripts),
-# consider integrating with HarfBuzz and ICU.
 
 module TrueType
   # Text alignment options
@@ -44,6 +41,12 @@ module TrueType
     # Original text range: end index in source string
     getter end_index : Int32
 
+    # Visual index -> logical index (line-local, excludes removed controls)
+    getter visual_to_logical_map : Array(Int32)
+
+    # Logical index -> visual index (line-local, -1 for removed controls)
+    getter logical_to_visual_map : Array(Int32)
+
     # Whether this line ends with a hard break (newline)
     getter? hard_break : Bool
 
@@ -54,13 +57,51 @@ module TrueType
       @descent : Int16,
       @start_index : Int32,
       @end_index : Int32,
-      @hard_break : Bool = false
+      @hard_break : Bool = false,
+      @visual_to_logical_map : Array(Int32) = [] of Int32,
+      @logical_to_visual_map : Array(Int32) = [] of Int32,
     )
     end
 
     # Height of the line (ascent + |descent|)
     def height : Int32
       @ascent.to_i32 + @descent.abs.to_i32
+    end
+
+    # Number of visual characters in this line.
+    def visual_length : Int32
+      @visual_to_logical_map.empty? ? (@end_index - @start_index) : @visual_to_logical_map.size
+    end
+
+    # Convert visual index in this line to source logical index.
+    def visual_to_logical(visual_index : Int32) : Int32?
+      local = if @visual_to_logical_map.empty?
+                visual_index
+              else
+                @visual_to_logical_map[visual_index]?
+              end
+
+      return nil unless local
+      return nil if local < 0
+
+      @start_index + local
+    end
+
+    # Convert source logical index to visual index in this line.
+    def logical_to_visual(logical_index : Int32) : Int32?
+      local = logical_index - @start_index
+      return nil if local < 0 || local >= (@end_index - @start_index)
+
+      visual = if @logical_to_visual_map.empty?
+                 local
+               else
+                 @logical_to_visual_map[local]?
+               end
+
+      return nil unless visual
+      return nil if visual < 0
+
+      visual
     end
 
     # Check if line is empty
@@ -121,7 +162,7 @@ module TrueType
     # Text alignment
     property align : TextAlign
 
-    # Text direction
+    # Paragraph direction override
     property direction : TextDirection
 
     # Enable kerning
@@ -148,7 +189,7 @@ module TrueType
       @ligatures : Bool = true,
       @word_wrap : Bool = true,
       @word_break_chars : String = " \t-",
-      @hyphen_char : Char? = nil
+      @hyphen_char : Char? = nil,
     )
     end
 
@@ -206,23 +247,7 @@ module TrueType
     def layout_line(text : String, options : LayoutOptions = LayoutOptions.default) : TextLine
       return empty_line(0, 0) if text.empty?
 
-      shaping_options = ShapingOptions.new(
-        kerning: options.kerning?,
-        ligatures: options.ligatures?
-      )
-
-      glyphs = @font.shape(text, shaping_options)
-      width = glyphs.sum(&.x_advance)
-
-      TextLine.new(
-        glyphs: glyphs,
-        width: width,
-        ascent: @font.ascender,
-        descent: @font.descender,
-        start_index: 0,
-        end_index: text.size,
-        hard_break: false
-      )
+      layout_single_segment(text, 0, options)
     end
 
     # Layout text with automatic line breaking
@@ -260,10 +285,8 @@ module TrueType
         width += @font.advance_width(glyph).to_i32
 
         # Track potential break points
-        if break_chars.includes?(char)
-          if width <= max_width
-            last_break_point = i + 1
-          end
+        if break_chars.includes?(char) && width <= max_width
+          last_break_point = i + 1
         end
 
         # Check if we've exceeded max width
@@ -281,6 +304,41 @@ module TrueType
 
       # Entire text fits
       text.size
+    end
+
+    # Move cursor one visual position to the left for a laid-out line.
+    def move_cursor_left(line : TextLine, logical_index : Int32) : Int32
+      move_cursor(line, logical_index, -1)
+    end
+
+    # Move cursor one visual position to the right for a laid-out line.
+    def move_cursor_right(line : TextLine, logical_index : Int32) : Int32
+      move_cursor(line, logical_index, +1)
+    end
+
+    # Convert a visual selection range into a logical range in source text.
+    def logical_selection_for_visual_range(line : TextLine, visual_start : Int32, visual_end : Int32) : Range(Int32, Int32)
+      return line.start_index...line.start_index if line.visual_length <= 0
+
+      from = {visual_start, visual_end}.min
+      to = {visual_start, visual_end}.max
+      from = from.clamp(0, line.visual_length)
+      to = to.clamp(0, line.visual_length)
+
+      return line.start_index...line.start_index if from == to
+
+      logical_indices = [] of Int32
+      (from...to).each do |visual_index|
+        if logical = line.visual_to_logical(visual_index)
+          logical_indices << logical
+        end
+      end
+
+      return line.start_index...line.start_index if logical_indices.empty?
+
+      logical_start = logical_indices.min
+      logical_end = logical_indices.max + 1
+      logical_start...logical_end
     end
 
     private def layout_without_wrapping(text : String, options : LayoutOptions) : Array(TextLine)
@@ -349,13 +407,7 @@ module TrueType
         return empty_line(start_index, start_index, hard_break)
       end
 
-      shaping_options = ShapingOptions.new(
-        kerning: options.kerning?,
-        ligatures: options.ligatures?
-      )
-
-      glyphs = @font.shape(text, shaping_options)
-      width = glyphs.sum(&.x_advance)
+      glyphs, width, visual_to_logical, logical_to_visual = shape_with_bidi(text, options)
 
       TextLine.new(
         glyphs: glyphs,
@@ -364,7 +416,9 @@ module TrueType
         descent: @font.descender,
         start_index: start_index,
         end_index: start_index + text.size,
-        hard_break: hard_break
+        hard_break: hard_break,
+        visual_to_logical_map: visual_to_logical,
+        logical_to_visual_map: logical_to_visual
       )
     end
 
@@ -376,8 +430,125 @@ module TrueType
         descent: @font.descender,
         start_index: start_index,
         end_index: end_index,
-        hard_break: hard_break
+        hard_break: hard_break,
+        visual_to_logical_map: [] of Int32,
+        logical_to_visual_map: [] of Int32
       )
+    end
+
+    private def move_cursor(line : TextLine, logical_index : Int32, delta : Int32) : Int32
+      visual_length = line.visual_length
+      return line.start_index if visual_length <= 0
+
+      local_length = line.end_index - line.start_index
+      return line.start_index if local_length <= 0
+
+      local_logical = (logical_index - line.start_index).clamp(0, local_length - 1)
+      source_logical = line.start_index + local_logical
+
+      visual_index = line.logical_to_visual(source_logical) || local_logical
+      target_visual = (visual_index + delta).clamp(0, visual_length - 1)
+
+      line.visual_to_logical(target_visual) || source_logical
+    end
+
+    private def shape_with_bidi(text : String, options : LayoutOptions) : Tuple(Array(PositionedGlyph), Int32, Array(Int32), Array(Int32))
+      paragraph_direction = case options.direction
+                            when TextDirection::RightToLeft
+                              Bidi::ParagraphDirection::RightToLeft
+                            else
+                              Bidi::ParagraphDirection::LeftToRight
+                            end
+
+      bidi_result = Bidi.resolve(text, paragraph_direction)
+      chars = text.chars
+      visual_indices = bidi_result.display_visual_to_logical
+
+      if visual_indices.empty?
+        return {
+          [] of PositionedGlyph,
+          0,
+          bidi_result.display_visual_to_logical,
+          bidi_result.display_logical_to_visual,
+        }
+      end
+
+      glyphs = [] of PositionedGlyph
+      run_start = 0
+
+      while run_start < visual_indices.size
+        first_logical = visual_indices[run_start]
+        rtl = bidi_result.levels[first_logical].odd?
+        expected_step = rtl ? -1 : 1
+
+        run_end = run_start + 1
+        prev_logical = first_logical
+
+        while run_end < visual_indices.size
+          current_logical = visual_indices[run_end]
+          break unless bidi_result.levels[current_logical].odd? == rtl
+          break unless current_logical - prev_logical == expected_step
+
+          prev_logical = current_logical
+          run_end += 1
+        end
+
+        run_visual_indices = visual_indices[run_start, run_end - run_start]
+        append_shaped_run!(glyphs, chars, run_visual_indices, rtl, options)
+
+        run_start = run_end
+      end
+
+      width = glyphs.sum(&.x_advance)
+      {
+        glyphs,
+        width,
+        bidi_result.display_visual_to_logical,
+        bidi_result.display_logical_to_visual,
+      }
+    end
+
+    private def append_shaped_run!(
+      output : Array(PositionedGlyph),
+      chars : Array(Char),
+      visual_indices : Array(Int32),
+      rtl : Bool,
+      options : LayoutOptions,
+    )
+      logical_indices = rtl ? visual_indices.reverse : visual_indices
+
+      run_text = String.build do |io|
+        logical_indices.each { |logical_index| io << chars[logical_index] }
+      end
+      return if run_text.empty?
+
+      shaping_options = ShapingOptions.new(
+        kerning: options.kerning?,
+        ligatures: options.ligatures?,
+        direction: rtl ? :rtl : :ltr
+      )
+
+      shaped = @font.shape(run_text, shaping_options)
+      shaped = shaped.reverse if rtl
+
+      shaped.each do |glyph|
+        local_cluster = glyph.cluster
+        mapped_cluster = if local_cluster >= 0 && local_cluster < logical_indices.size
+                           logical_indices[local_cluster]
+                         else
+                           logical_indices.first
+                         end
+
+        output << PositionedGlyph.new(
+          id: glyph.id,
+          codepoint: glyph.codepoint,
+          cluster: mapped_cluster,
+          x_offset: glyph.x_offset,
+          y_offset: glyph.y_offset,
+          x_advance: glyph.x_advance,
+          y_advance: glyph.y_advance
+        )
+      end
     end
   end
 end

@@ -429,54 +429,54 @@ Implementation of Unicode Bidirectional Algorithm (UAX #9) for mixed LTR/RTL tex
 
 ### Character Classification
 
-- [ ] Bidi_Class property lookup for all Unicode characters
-  - [ ] Strong types: L (Left-to-Right), R (Right-to-Left), AL (Arabic Letter)
-  - [ ] Weak types: EN, ES, ET, AN, CS, NSM, BN
-  - [ ] Neutral types: B, S, WS, ON
-  - [ ] Explicit formatting types: LRE, RLE, LRO, RLO, PDF, LRI, RLI, FSI, PDI
-- [ ] Bidi_Paired_Bracket property for bracket pairing
-- [ ] Bidi_Paired_Bracket_Type (Open/Close/None)
+- [x] Bidi_Class property lookup for all Unicode characters
+  - [x] Strong types: L (Left-to-Right), R (Right-to-Left), AL (Arabic Letter)
+  - [x] Weak types: EN, ES, ET, AN, CS, NSM, BN
+  - [x] Neutral types: B, S, WS, ON
+  - [x] Explicit formatting types: LRE, RLE, LRO, RLO, PDF, LRI, RLI, FSI, PDI
+- [x] Bidi_Paired_Bracket property for bracket pairing
+- [x] Bidi_Paired_Bracket_Type (Open/Close/None)
 
 ### Algorithm Implementation
 
-- [ ] **P1-P3**: Paragraph level determination
-  - [ ] Find first strong directional character
-  - [ ] Support explicit paragraph direction override
-- [ ] **X1-X8**: Explicit embedding levels
-  - [ ] LRE/RLE embedding (increase level)
-  - [ ] LRO/RLO override (force direction)
-  - [ ] PDF terminator
-  - [ ] Directional isolates (LRI, RLI, FSI, PDI)
-  - [ ] Max depth enforcement (125 levels)
-- [ ] **W1-W7**: Weak type resolution
-  - [ ] NSM inherits from preceding
-  - [ ] EN/AN context resolution
-  - [ ] Separator handling
-- [ ] **N0**: Bracket pairing
-  - [ ] Identify paired brackets
-  - [ ] Match opening/closing pairs
-  - [ ] Assign direction based on context
+- [x] **P1-P3**: Paragraph level determination
+  - [x] Find first strong directional character
+  - [x] Support explicit paragraph direction override
+- [x] **X1-X8**: Explicit embedding levels
+  - [x] LRE/RLE embedding (increase level)
+  - [x] LRO/RLO override (force direction)
+  - [x] PDF terminator
+  - [x] Directional isolates (LRI, RLI, FSI, PDI)
+  - [x] Max depth enforcement (125 levels)
+- [x] **W1-W7**: Weak type resolution
+  - [x] NSM inherits from preceding
+  - [x] EN/AN context resolution
+  - [x] Separator handling
+- [x] **N0**: Bracket pairing
+  - [x] Identify paired brackets
+  - [x] Match opening/closing pairs
+  - [x] Assign direction based on context
 - [ ] **N1-N2**: Neutral type resolution
-  - [ ] Resolve neutrals between strong types
+  - [x] Resolve neutrals between strong types
   - [ ] Handle isolate boundaries
-- [ ] **I1-I2**: Implicit level assignment
-  - [ ] Assign levels based on resolved types
+- [x] **I1-I2**: Implicit level assignment
+  - [x] Assign levels based on resolved types
 
 ### Reordering
 
-- [ ] **L1**: Line-based reordering
-  - [ ] Break into level runs
-  - [ ] Reverse odd-level runs
-  - [ ] Handle trailing whitespace
-- [ ] **L2**: Line break handling
+- [x] **L1**: Line-based reordering
+  - [x] Break into level runs
+  - [x] Reverse odd-level runs
+  - [x] Handle trailing whitespace
+- [x] **L2**: Line break handling
 - [ ] **L3-L4**: Combining mark and control character handling
 
 ### Integration
 
-- [ ] `TextLayout` integration for bidi paragraphs
-- [ ] Visual-to-logical and logical-to-visual index mapping
-- [ ] Cursor movement in bidi text
-- [ ] Text selection in mixed-direction text
+- [x] `TextLayout` integration for bidi paragraphs
+- [x] Visual-to-logical and logical-to-visual index mapping
+- [x] Cursor movement in bidi text
+- [x] Text selection in mixed-direction text
 
 ### Testing
 
@@ -543,10 +543,10 @@ Enhancements to make the library easier to use.
 - [x] Basic text width calculation with kerning
 - [x] Line breaking support with configurable max width
 - [ ] Alignments (`Left`, `Center`, `Right`, `Justify`) applied to glyph positions
-- [ ] Directional layout option (`LeftToRight`, `RightToLeft`) applied in line ordering
+- [x] Directional layout option (`LeftToRight`, `RightToLeft`) applied in line ordering
 - [ ] `line_height` applied to paragraph layout output (not just measurement helper)
 - [ ] Hyphenation behavior (`hyphen_char`) in wrap logic
-- [ ] Bi-directional text support (UAX #9)
+- [x] Bi-directional text support (UAX #9)
 - [ ] Shaping-aware line breaking and layout integration
 
 ### Error Handling (In Progress)

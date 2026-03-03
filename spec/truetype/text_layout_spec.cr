@@ -18,10 +18,10 @@ describe TrueType::TextLayout do
     it "respects kerning option" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       width_with_kern = layout.measure_width("AV", kerning: true)
       width_no_kern = layout.measure_width("AV", kerning: false)
-      
+
       # With kerning, width may be slightly different (usually smaller for AV)
       # Both should be positive
       width_with_kern.should be > 0
@@ -33,7 +33,7 @@ describe TrueType::TextLayout do
     it "measures height for lines" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       height = layout.measure_height(1)
       height.should be > 0
     end
@@ -41,11 +41,11 @@ describe TrueType::TextLayout do
     it "height increases with line count" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       h1 = layout.measure_height(1)
       h2 = layout.measure_height(2)
       h3 = layout.measure_height(3)
-      
+
       h2.should be > h1
       h3.should be > h2
     end
@@ -55,7 +55,7 @@ describe TrueType::TextLayout do
     it "layouts a single line" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       line = layout.layout_line("Hello")
       line.glyphs.size.should eq(5)
       line.width.should be > 0
@@ -64,10 +64,22 @@ describe TrueType::TextLayout do
     it "returns empty line for empty text" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       line = layout.layout_line("")
       line.empty?.should be_true
       line.width.should eq(0)
+    end
+
+    it "builds visual and logical index maps for bidi text" do
+      font = TrueType::Font.open(FONT_PATH)
+      layout = TrueType::TextLayout.new(font)
+
+      line = layout.layout_line("abc אבג")
+      line.visual_length.should eq(7)
+      line.visual_to_logical_map.should eq([0, 1, 2, 3, 6, 5, 4])
+      line.logical_to_visual_map.should eq([0, 1, 2, 3, 6, 5, 4])
+      line.visual_to_logical(4).should eq(6)
+      line.logical_to_visual(4).should eq(6)
     end
   end
 
@@ -75,28 +87,28 @@ describe TrueType::TextLayout do
     it "layouts text without wrapping" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       options = TrueType::LayoutOptions.single_line
       para = layout.layout("Hello World", options)
-      
+
       para.line_count.should eq(1)
     end
 
     it "wraps text at max width" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       # Use a small max width to force wrapping
       options = TrueType::LayoutOptions.new(max_width: 1000)
       para = layout.layout("Hello World, this is a long sentence that should wrap", options)
-      
+
       para.line_count.should be > 1
     end
 
     it "splits on newlines" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       para = layout.layout("Line 1\nLine 2\nLine 3")
       para.line_count.should eq(3)
     end
@@ -104,7 +116,7 @@ describe TrueType::TextLayout do
     it "handles empty text" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       para = layout.layout("")
       para.empty?.should be_true
     end
@@ -112,7 +124,7 @@ describe TrueType::TextLayout do
     it "handles consecutive newlines" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       para = layout.layout("A\n\nB")
       para.line_count.should eq(3) # "A", empty line, "B"
     end
@@ -122,11 +134,11 @@ describe TrueType::TextLayout do
     it "finds word break point" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       # Set max_width to fit "Hello " approximately
       first_word_width = layout.measure_width("Hello ")
       options = TrueType::LayoutOptions.new(max_width: first_word_width + 100)
-      
+
       break_point = layout.find_break_point("Hello World", first_word_width + 100, options)
       break_point.should be > 0
     end
@@ -134,11 +146,32 @@ describe TrueType::TextLayout do
     it "returns full length when text fits" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       options = TrueType::LayoutOptions.default
       text = "Short"
       break_point = layout.find_break_point(text, 10000, options)
       break_point.should eq(text.size)
+    end
+  end
+end
+
+describe TrueType::TextLayout do
+  describe "bidi cursor and selection helpers" do
+    it "moves cursor in visual order for mixed-direction text" do
+      font = TrueType::Font.open(FONT_PATH)
+      layout = TrueType::TextLayout.new(font)
+      line = layout.layout_line("abc אבג")
+
+      layout.move_cursor_right(line, 3).should eq(6)
+      layout.move_cursor_left(line, 6).should eq(3)
+    end
+
+    it "maps visual selection to logical source range" do
+      font = TrueType::Font.open(FONT_PATH)
+      layout = TrueType::TextLayout.new(font)
+      line = layout.layout_line("abc אבג")
+
+      layout.logical_selection_for_visual_range(line, 4, 7).should eq(4...7)
     end
   end
 end
@@ -182,7 +215,7 @@ describe TrueType::ParagraphLayout do
     it "returns max line width" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       para = layout.layout("Short\nLonger line here")
       para.width.should be > 0
     end
@@ -192,7 +225,7 @@ describe TrueType::ParagraphLayout do
     it "returns total height" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       para = layout.layout("Line1\nLine2")
       para.height.should be > 0
     end
@@ -202,14 +235,14 @@ describe TrueType::ParagraphLayout do
     it "iterates with y positions" do
       font = TrueType::Font.open(FONT_PATH)
       layout = TrueType::TextLayout.new(font)
-      
+
       para = layout.layout("Line1\nLine2")
       positions = [] of Int32
-      
+
       para.each_line_with_position do |line, y|
         positions << y
       end
-      
+
       positions.size.should eq(2)
       positions[1].should be > positions[0]
     end
