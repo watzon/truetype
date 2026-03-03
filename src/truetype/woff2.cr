@@ -100,7 +100,7 @@ module TrueType
       @meta_length : UInt32,
       @meta_orig_length : UInt32,
       @priv_offset : UInt32,
-      @priv_length : UInt32
+      @priv_length : UInt32,
     )
     end
 
@@ -165,6 +165,54 @@ module TrueType
       tables = parse_table_directory(io, header.num_tables)
       compressed_offset = io.pos.to_i
       new(data, header, tables, compressed_offset)
+    end
+
+    # Convert sfnt bytes (TTF/OTF) to WOFF2 bytes using null transforms.
+    def self.from_sfnt(sfnt : Bytes) : Bytes
+      parser = Parser.parse(sfnt)
+      records = parser.table_records.values.sort_by(&.tag)
+
+      directory = IO::Memory.new
+      table_stream = IO::Memory.new
+
+      records.each do |record|
+        tag = record.tag
+        tag_index = Woff2TableEntry::KNOWN_TAGS.index(tag)
+        encoded_tag_index = tag_index ? tag_index.to_u8 : 63_u8
+        transform_version = (tag == "glyf" || tag == "loca") ? 3_u8 : 0_u8
+        flags = ((transform_version << 6) | encoded_tag_index).to_u8
+
+        directory.write_byte(flags)
+        directory.write(tag.to_slice) if encoded_tag_index == 63_u8
+        write_uint_base128(directory, record.length)
+
+        table_stream.write(sfnt[record.offset.to_i, record.length.to_i])
+      end
+
+      compressed = Compress::Brotli.encode(table_stream.to_slice)
+
+      directory_bytes = directory.to_slice
+      total_size = 48 + directory_bytes.size + compressed.size
+      output = IO::Memory.new(total_size)
+
+      write_uint32(output, Woff2Header::WOFF2_SIGNATURE)
+      write_uint32(output, parser.sfnt_version)
+      write_uint32(output, total_size.to_u32)
+      write_uint16(output, records.size.to_u16)
+      write_uint16(output, 0_u16) # reserved
+      write_uint32(output, sfnt.size.to_u32)
+      write_uint32(output, compressed.size.to_u32)
+      write_uint16(output, 1_u16) # majorVersion
+      write_uint16(output, 0_u16) # minorVersion
+      write_uint32(output, 0_u32) # metaOffset
+      write_uint32(output, 0_u32) # metaLength
+      write_uint32(output, 0_u32) # metaOrigLength
+      write_uint32(output, 0_u32) # privOffset
+      write_uint32(output, 0_u32) # privLength
+
+      output.write(directory_bytes)
+      output.write(compressed)
+      output.to_slice
     end
 
     def self.woff2?(data : Bytes) : Bool
@@ -261,6 +309,23 @@ module TrueType
         return result if (byte & 0x80) == 0
       end
       raise ParseError.new("Invalid UIntBase128 encoding")
+    end
+
+    private def self.write_uint_base128(io : IO, value : UInt32) : Nil
+      encoded = [] of UInt8
+      current = value
+
+      loop do
+        encoded << (current & 0x7F).to_u8
+        current >>= 7
+        break if current == 0
+      end
+
+      (encoded.size - 1).downto(0) do |index|
+        byte = encoded[index]
+        byte |= 0x80_u8 unless index == 0
+        io.write_byte(byte)
+      end
     end
 
     private def decompress_brotli(data : Bytes) : Bytes
@@ -371,7 +436,6 @@ module TrueType
             num_glyphs = read_uint16(io)
           end
           result[i] = table_bytes
-
         when "hhea"
           # Extract numberOfHMetrics from hhea (offset 34, UInt16)
           if table_bytes.size >= 36
@@ -380,7 +444,6 @@ module TrueType
             num_hmetrics = read_uint16(io)
           end
           result[i] = table_bytes
-
         when "glyf"
           if glyf_transformed
             # Reconstruct glyf and loca together from transformed data
@@ -399,7 +462,6 @@ module TrueType
               x_mins = extract_x_mins(table_bytes, loca_data, num_glyphs)
             end
           end
-
         when "loca"
           if glyf_transformed
             # loca was already reconstructed with glyf
@@ -411,7 +473,6 @@ module TrueType
           else
             result[i] = table_bytes
           end
-
         when "hmtx"
           if hmtx_transformed && x_mins
             # Reconstruct hmtx from transformed data
@@ -420,7 +481,6 @@ module TrueType
           else
             result[i] = table_bytes
           end
-
         else
           result[i] = table_bytes
         end
@@ -444,20 +504,20 @@ module TrueType
       num_glyphs.times do |i|
         # Get glyph offset
         offset = if long_format
-          read_uint32(loca_io).to_i
-        else
-          read_uint16(loca_io).to_i * 2
-        end
+                   read_uint32(loca_io).to_i
+                 else
+                   read_uint16(loca_io).to_i * 2
+                 end
 
         # Save position to read next offset
         saved_pos = loca_io.pos
 
         # Get next offset to determine length
         next_offset = if long_format
-          read_uint32(loca_io).to_i
-        else
-          read_uint16(loca_io).to_i * 2
-        end
+                        read_uint32(loca_io).to_i
+                      else
+                        read_uint16(loca_io).to_i * 2
+                      end
 
         # Restore to continue iteration
         loca_io.pos = saved_pos

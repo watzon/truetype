@@ -195,7 +195,12 @@ module TrueType
       end
 
       # Create a subset glyf table with only the specified glyphs
-      def subset(glyph_ids : Array(UInt16), loca : Loca, glyph_id_map : Hash(UInt16, UInt16)) : Tuple(Glyf, Loca)
+      def subset(
+        glyph_ids : Array(UInt16),
+        loca : Loca,
+        glyph_id_map : Hash(UInt16, UInt16),
+        strip_hints : Bool = false,
+      ) : Tuple(Glyf, Loca)
         glyph_data_list = [] of Bytes
         new_offsets = [] of UInt32
         current_offset = 0_u32
@@ -210,6 +215,10 @@ module TrueType
           # For composite glyphs, we need to remap component IDs
           if glyph.composite? && !data.empty?
             data = remap_composite_glyph(data, glyph_id_map)
+          end
+
+          if strip_hints && !data.empty?
+            data = strip_glyph_hints(data)
           end
 
           # Align to 2-byte boundary
@@ -247,7 +256,6 @@ module TrueType
         loop do
           break if io.pos + 4 > data.size
 
-          flags_pos = io.pos
           flags = read_uint16(io)
           old_glyph_id = read_uint16(io)
 
@@ -279,6 +287,86 @@ module TrueType
         output.write(read_bytes(io, remaining)) if remaining > 0
 
         output.to_slice
+      end
+
+      # Remove TrueType instruction bytecode from a glyph while preserving outline data.
+      private def strip_glyph_hints(data : Bytes) : Bytes
+        return data if data.size < 10
+
+        number_of_contours = ((data[0].to_u16 << 8) | data[1].to_u16).to_i16
+        if number_of_contours >= 0
+          strip_simple_glyph_hints(data, number_of_contours.to_i)
+        else
+          strip_composite_glyph_hints(data)
+        end
+      rescue
+        data
+      end
+
+      private def strip_simple_glyph_hints(data : Bytes, contour_count : Int32) : Bytes
+        pos = 10 + (contour_count * 2)
+        return data if pos + 2 > data.size
+
+        instruction_length = ((data[pos].to_u16 << 8) | data[pos + 1].to_u16).to_i
+        instruction_start = pos + 2
+        instruction_end = instruction_start + instruction_length
+        return data if instruction_end > data.size
+
+        output = IO::Memory.new(data.size - instruction_length)
+        output.write(data[0, pos])
+        write_uint16(output, 0_u16)
+        output.write(data[instruction_end, data.size - instruction_end]) if instruction_end < data.size
+        output.to_slice
+      end
+
+      private def strip_composite_glyph_hints(data : Bytes) : Bytes
+        pos = 10
+        return data if pos + 4 > data.size
+
+        last_flags_pos = 0
+        last_flags = 0_u16
+
+        loop do
+          return data if pos + 4 > data.size
+
+          flags = ((data[pos].to_u16 << 8) | data[pos + 1].to_u16).to_u16
+          last_flags_pos = pos
+          last_flags = flags
+          pos += 4 # flags + glyphIndex
+
+          arg_size = (flags & GlyphFlags::ARG_1_AND_2_ARE_WORDS) != 0 ? 4 : 2
+          pos += arg_size
+
+          if (flags & GlyphFlags::WE_HAVE_A_SCALE) != 0
+            pos += 2
+          elsif (flags & GlyphFlags::WE_HAVE_AN_X_AND_Y_SCALE) != 0
+            pos += 4
+          elsif (flags & GlyphFlags::WE_HAVE_A_TWO_BY_TWO) != 0
+            pos += 8
+          end
+
+          return data if pos > data.size
+          break if (flags & GlyphFlags::MORE_COMPONENTS) == 0
+        end
+
+        return data if (last_flags & GlyphFlags::WE_HAVE_INSTRUCTIONS) == 0
+        return data if pos + 2 > data.size
+
+        instruction_length = ((data[pos].to_u16 << 8) | data[pos + 1].to_u16).to_i
+        instruction_start = pos + 2
+        instruction_end = instruction_start + instruction_length
+        return data if instruction_end > data.size
+
+        output = IO::Memory.new(data.size - instruction_length)
+        output.write(data[0, pos])
+        write_uint16(output, 0_u16)
+        output.write(data[instruction_end, data.size - instruction_end]) if instruction_end < data.size
+
+        stripped = output.to_slice
+        new_flags = (last_flags & ~GlyphFlags::WE_HAVE_INSTRUCTIONS).to_u16
+        stripped[last_flags_pos] = ((new_flags >> 8) & 0xFF).to_u8
+        stripped[last_flags_pos + 1] = (new_flags & 0xFF).to_u8
+        stripped
       end
 
       # Serialize the table to bytes

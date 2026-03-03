@@ -312,6 +312,8 @@ module TrueType
         record = @table_records["GDEF"]?
         return nil unless record
         Tables::OpenType::GDEF.parse(@data, record.offset, record.length)
+      rescue
+        nil
       end
     end
 
@@ -321,6 +323,8 @@ module TrueType
         record = @table_records["GSUB"]?
         return nil unless record
         Tables::OpenType::GSUB.parse(@data, record.offset, record.length)
+      rescue
+        nil
       end
     end
 
@@ -330,7 +334,7 @@ module TrueType
         record = @table_records["GPOS"]?
         return nil unless record
         Tables::OpenType::GPOS.parse(@data, record.offset, record.length)
-      rescue ex : ParseError
+      rescue
         # Some fonts have malformed GPOS tables - fall back gracefully
         nil
       end
@@ -856,8 +860,7 @@ module TrueType
             glyph_data.origin_offset_x.to_i8,
             glyph_data.origin_offset_y.to_i8,
             0_u8, # Advance not stored in sbix
-            glyph_data.png? ? Tables::Color::ImageFormat::SmallMetricsPNG :
-              Tables::Color::ImageFormat::SmallMetricsByteAligned,
+            glyph_data.png? ? Tables::Color::ImageFormat::SmallMetricsPNG : Tables::Color::ImageFormat::SmallMetricsByteAligned,
             glyph_data.data
           )
         end
@@ -965,7 +968,7 @@ module TrueType
     # Apply computed deltas to a glyph outline, returning a new interpolated outline.
     private def apply_deltas_to_outline(
       outline : GlyphOutline,
-      deltas : Tables::Variations::Gvar::GlyphDeltas
+      deltas : Tables::Variations::Gvar::GlyphDeltas,
     ) : GlyphOutline
       new_contours = [] of Contour
       point_idx = 0

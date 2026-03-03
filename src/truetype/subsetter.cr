@@ -6,6 +6,7 @@ module TrueType
 
     # The original font parser
     getter parser : Parser
+    getter options : SubsetOptions
 
     # Characters to include in the subset
     @characters : Set(Char)
@@ -16,7 +17,19 @@ module TrueType
     # Mapping from old glyph IDs to new glyph IDs
     @glyph_id_map : Hash(UInt16, UInt16)
 
-    def initialize(@parser : Parser)
+    private MINIMAL_NAME_IDS = Set{
+      Tables::NameID::FONT_FAMILY,
+      Tables::NameID::FONT_SUBFAMILY,
+      Tables::NameID::FULL_NAME,
+      Tables::NameID::VERSION_STRING,
+      Tables::NameID::POSTSCRIPT_NAME,
+      Tables::NameID::PREFERRED_FAMILY,
+      Tables::NameID::PREFERRED_SUBFAMILY,
+    }
+
+    private HINTING_TABLE_TAGS = ["cvt ", "fpgm", "prep", "gasp"]
+
+    def initialize(@parser : Parser, @options : SubsetOptions = SubsetOptions.default)
       @characters = Set(Char).new
       @glyph_ids = Set(UInt16).new
       @glyph_id_map = Hash(UInt16, UInt16).new
@@ -64,8 +77,8 @@ module TrueType
     private def collect_glyph_ids : Nil
       @glyph_ids.clear
 
-      # Always include glyph 0 (.notdef)
-      @glyph_ids << 0_u16
+      # Include glyph 0 (.notdef) if requested
+      @glyph_ids << 0_u16 if @options.include_notdef?
 
       # Add glyphs for each character
       @characters.each do |char|
@@ -175,12 +188,33 @@ module TrueType
       tables << {"hhea", build_hhea}
       tables << {"hmtx", build_hmtx}
       tables << {"maxp", build_maxp}
-      tables << {"name", @parser.name.to_bytes}
+      tables << {"name", build_name}
       tables << {"post", build_post}
 
       if @parser.has_table?("OS/2")
         tables << {"OS/2", @parser.os2.not_nil!.to_bytes}
       end
+
+      if @options.preserve_hints?
+        HINTING_TABLE_TAGS.each do |tag|
+          if table = @parser.table_data(tag)
+            tables << {tag, table}
+          end
+        end
+      end
+
+      if @options.preserve_layout?
+        append_raw_table(tables, "GDEF")
+        append_raw_table(tables, "GSUB")
+
+        # preserve_kerning controls GPOS inclusion because pair kerning data
+        # typically lives there alongside other positioning features.
+        append_raw_table(tables, "GPOS") if @options.preserve_kerning?
+      end
+
+      append_raw_table(tables, "kern") if @options.preserve_kerning?
+
+      append_raw_table(tables, "DSIG") unless @options.remove_signature?
 
       # Sort tables by tag (required for proper checksums)
       tables.sort_by! { |tag, _| tag }
@@ -204,7 +238,7 @@ module TrueType
 
     private def build_glyf : Tuple(Tables::Glyf, Tables::Loca)
       sorted_ids = @glyph_id_map.keys.sort_by { |id| @glyph_id_map[id] }
-      @parser.glyf.subset(sorted_ids, @parser.loca, @glyph_id_map)
+      @parser.glyf.subset(sorted_ids, @parser.loca, @glyph_id_map, strip_hints: !@options.preserve_hints?)
     end
 
     @subset_loca : Tables::Loca?
@@ -283,7 +317,7 @@ module TrueType
 
       if @parser.cff?
         # CFF fonts use maxp version 0.5 (only version and numGlyphs)
-        write_uint32(io, 0x00005000_u32)  # version 0.5
+        write_uint32(io, 0x00005000_u32) # version 0.5
         write_uint16(io, @glyph_id_map.size.to_u16)
       else
         # TrueType fonts use maxp version 1.0
@@ -326,6 +360,44 @@ module TrueType
       write_uint32(io, post.max_mem_type1)
 
       io.to_slice
+    end
+
+    private def build_name : Bytes
+      name = @parser.name
+      return name.to_bytes unless @options.subset_names?
+
+      filtered = name.records.select { |record| MINIMAL_NAME_IDS.includes?(record.name_id) }
+      return name.to_bytes if filtered.empty?
+
+      string_io = IO::Memory.new
+      new_records = [] of Tables::NameRecord
+
+      filtered.each do |record|
+        next if record.offset + record.length > name.string_data.size
+
+        record_string = name.string_data[record.offset, record.length]
+        offset = string_io.pos.to_u16
+        string_io.write(record_string)
+
+        new_records << Tables::NameRecord.new(
+          record.platform_id,
+          record.encoding_id,
+          record.language_id,
+          record.name_id,
+          record.length,
+          offset
+        )
+      end
+
+      return name.to_bytes if new_records.empty?
+
+      Tables::Name.new(name.format, new_records, string_io.to_slice).to_bytes
+    end
+
+    private def append_raw_table(tables : Array(Tuple(String, Bytes)), tag : String) : Nil
+      return unless @parser.has_table?(tag)
+      table = @parser.table_data(tag)
+      tables << {tag, table} if table
     end
 
     private def calculate_checksum(data : Bytes) : UInt32

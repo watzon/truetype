@@ -189,6 +189,72 @@ module TrueType
       new(data, header, tables)
     end
 
+    # Convert sfnt bytes (TTF/OTF) to WOFF bytes.
+    def self.from_sfnt(sfnt : Bytes) : Bytes
+      parser = Parser.parse(sfnt)
+      records = parser.table_records.values.sort_by(&.tag)
+
+      table_data = records.map do |record|
+        raw = sfnt[record.offset.to_i, record.length.to_i]
+        compressed = compress_table(raw)
+        stored = compressed.size < raw.size ? compressed : raw
+        {record.tag, stored, record.length, record.checksum}
+      end
+
+      num_tables = table_data.size
+      directory_size = num_tables * 20
+      first_table_offset = align4(44 + directory_size)
+
+      entries = [] of WoffTableEntry
+      current_offset = first_table_offset
+      table_data.each do |tag, stored, orig_length, checksum|
+        entries << WoffTableEntry.new(
+          tag,
+          current_offset.to_u32,
+          stored.size.to_u32,
+          orig_length,
+          checksum
+        )
+        current_offset = align4(current_offset + stored.size)
+      end
+
+      output = IO::Memory.new(current_offset)
+
+      write_uint32(output, WoffHeader::WOFF_SIGNATURE)
+      write_uint32(output, parser.sfnt_version)
+      write_uint32(output, current_offset.to_u32)
+      write_uint16(output, num_tables.to_u16)
+      write_uint16(output, 0_u16) # reserved
+      write_uint32(output, sfnt.size.to_u32)
+      write_uint16(output, 1_u16) # majorVersion
+      write_uint16(output, 0_u16) # minorVersion
+      write_uint32(output, 0_u32) # metaOffset
+      write_uint32(output, 0_u32) # metaLength
+      write_uint32(output, 0_u32) # metaOrigLength
+      write_uint32(output, 0_u32) # privOffset
+      write_uint32(output, 0_u32) # privLength
+
+      entries.each do |entry|
+        output.write(entry.tag.to_slice)
+        write_uint32(output, entry.offset)
+        write_uint32(output, entry.comp_length)
+        write_uint32(output, entry.orig_length)
+        write_uint32(output, entry.orig_checksum)
+      end
+
+      while output.pos < first_table_offset
+        output.write_byte(0_u8)
+      end
+
+      table_data.each do |_tag, stored, _orig_length, _checksum|
+        output.write(stored)
+        padding = (4 - (stored.size % 4)) % 4
+        padding.times { output.write_byte(0_u8) }
+      end
+
+      output.to_slice
+    end
+
     # Check if data appears to be WOFF
     def self.woff?(data : Bytes) : Bool
       return false if data.size < 4
@@ -356,6 +422,18 @@ module TrueType
         i += 4
       end
       sum
+    end
+
+    private def self.compress_table(data : Bytes) : Bytes
+      io = IO::Memory.new
+      Compress::Zlib::Writer.open(io) do |zlib|
+        zlib.write(data)
+      end
+      io.to_slice
+    end
+
+    private def self.align4(value : Int32) : Int32
+      (value + 3) & ~3
     end
 
     extend IOHelpers

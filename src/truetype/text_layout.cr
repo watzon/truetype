@@ -124,9 +124,12 @@ module TrueType
     # Number of lines
     getter line_count : Int32
 
-    def initialize(@lines : Array(TextLine))
+    # Paragraph line-height multiplier used to position lines
+    getter line_height : Float64
+
+    def initialize(@lines : Array(TextLine), @line_height : Float64 = 1.0)
       @width = @lines.empty? ? 0 : @lines.max_of(&.width)
-      @height = @lines.sum(&.height)
+      @height = compute_total_height
       @line_count = @lines.size
     end
 
@@ -143,11 +146,30 @@ module TrueType
     # Iterate over lines with y position
     def each_line_with_position(& : TextLine, Int32 ->)
       y = 0
-      @lines.each do |line|
+      @lines.each_with_index do |line, index|
         y += line.ascent.to_i32
         yield line, y
         y += line.descent.abs.to_i32
+        if index < @lines.size - 1
+          spacing = (line.height.to_f64 * (@line_height - 1.0)).round.to_i32
+          y += spacing
+        end
       end
+    end
+
+    private def compute_total_height : Int32
+      return 0 if @lines.empty?
+
+      total = 0
+      @lines.each_with_index do |line, index|
+        total += line.height
+        next if index == @lines.size - 1
+
+        spacing = (line.height.to_f64 * (@line_height - 1.0)).round.to_i32
+        total += spacing
+      end
+
+      total
     end
   end
 
@@ -259,11 +281,11 @@ module TrueType
       # If no max width, return single line per paragraph
       if max_width.nil?
         lines = layout_without_wrapping(text, options)
-        return ParagraphLayout.new(lines)
+        return ParagraphLayout.new(lines, options.line_height)
       end
 
       lines = layout_with_wrapping(text, max_width, options)
-      ParagraphLayout.new(lines)
+      ParagraphLayout.new(lines, options.line_height)
     end
 
     # Find the best break point in text to fit within max_width
@@ -382,12 +404,21 @@ module TrueType
           break_point = remaining.size if break_point <= 0
 
           segment = remaining[0, break_point].rstrip
+          source_length = segment.size
           is_last_segment = break_point >= remaining.size
+
+          unless is_last_segment
+            if hyphenated = maybe_hyphenate_segment(remaining, break_point, segment, max_width, options)
+              segment = hyphenated
+            end
+          end
 
           line = layout_single_segment(
             segment,
             char_offset + segment_offset,
             options,
+            source_length: source_length,
+            allow_justify: !is_last_segment,
             hard_break: !is_last_para && is_last_segment
           )
           lines << line
@@ -402,12 +433,20 @@ module TrueType
       lines
     end
 
-    private def layout_single_segment(text : String, start_index : Int32, options : LayoutOptions, hard_break : Bool = false) : TextLine
+    private def layout_single_segment(
+      text : String,
+      start_index : Int32,
+      options : LayoutOptions,
+      source_length : Int32 = text.size,
+      allow_justify : Bool = false,
+      hard_break : Bool = false,
+    ) : TextLine
       if text.empty?
-        return empty_line(start_index, start_index, hard_break)
+        return empty_line(start_index, start_index + source_length, hard_break)
       end
 
       glyphs, width, visual_to_logical, logical_to_visual = shape_with_bidi(text, options)
+      glyphs, width = apply_alignment(glyphs, width, options, allow_justify, hard_break)
 
       TextLine.new(
         glyphs: glyphs,
@@ -415,7 +454,7 @@ module TrueType
         ascent: @font.ascender,
         descent: @font.descender,
         start_index: start_index,
-        end_index: start_index + text.size,
+        end_index: start_index + source_length,
         hard_break: hard_break,
         visual_to_logical_map: visual_to_logical,
         logical_to_visual_map: logical_to_visual
@@ -506,6 +545,111 @@ module TrueType
         bidi_result.display_visual_to_logical,
         bidi_result.display_logical_to_visual,
       }
+    end
+
+    private def maybe_hyphenate_segment(
+      remaining : String,
+      break_point : Int32,
+      segment : String,
+      max_width : Int32,
+      options : LayoutOptions,
+    ) : String?
+      hyphen_char = options.hyphen_char
+      return nil unless hyphen_char
+      return nil if break_point <= 0 || break_point >= remaining.size
+
+      boundary_left = remaining[break_point - 1]?
+      boundary_right = remaining[break_point]?
+      return nil unless boundary_left && boundary_right
+
+      break_chars = options.word_break_chars
+      return nil if break_chars.includes?(boundary_left)
+      return nil if break_chars.includes?(boundary_right)
+
+      candidate = "#{segment}#{hyphen_char}"
+      width = measure_width(candidate, kerning: options.kerning?)
+      width <= max_width ? candidate : nil
+    end
+
+    private def apply_alignment(
+      glyphs : Array(PositionedGlyph),
+      width : Int32,
+      options : LayoutOptions,
+      allow_justify : Bool,
+      hard_break : Bool,
+    ) : Tuple(Array(PositionedGlyph), Int32)
+      max_width = options.max_width
+      return {glyphs, width} unless max_width
+      return {glyphs, width} if glyphs.empty?
+
+      case options.align
+      when TextAlign::Left
+        {glyphs, width}
+      when TextAlign::Center
+        offset = (max_width - width) // 2
+        {shift_glyphs(glyphs, offset), width}
+      when TextAlign::Right
+        offset = max_width - width
+        {shift_glyphs(glyphs, offset), width}
+      when TextAlign::Justify
+        return {glyphs, width} unless allow_justify
+        justify_glyphs(glyphs, width, max_width, hard_break)
+      else
+        {glyphs, width}
+      end
+    end
+
+    private def shift_glyphs(glyphs : Array(PositionedGlyph), delta_x : Int32) : Array(PositionedGlyph)
+      return glyphs if delta_x == 0
+
+      glyphs.map do |glyph|
+        PositionedGlyph.new(
+          id: glyph.id,
+          codepoint: glyph.codepoint,
+          cluster: glyph.cluster,
+          x_offset: glyph.x_offset + delta_x,
+          y_offset: glyph.y_offset,
+          x_advance: glyph.x_advance,
+          y_advance: glyph.y_advance
+        )
+      end
+    end
+
+    private def justify_glyphs(
+      glyphs : Array(PositionedGlyph),
+      width : Int32,
+      max_width : Int32,
+      hard_break : Bool,
+    ) : Tuple(Array(PositionedGlyph), Int32)
+      return {glyphs, width} if hard_break || width >= max_width
+
+      spaces = glyphs.count { |glyph| glyph.codepoint == ' '.ord.to_u32 }
+      return {glyphs, width} if spaces == 0
+
+      extra = max_width - width
+      per_space = extra // spaces
+      remainder = extra % spaces
+      space_index = 0
+
+      justified = glyphs.map do |glyph|
+        if glyph.codepoint == ' '.ord.to_u32
+          addition = per_space + (space_index < remainder ? 1 : 0)
+          space_index += 1
+          PositionedGlyph.new(
+            id: glyph.id,
+            codepoint: glyph.codepoint,
+            cluster: glyph.cluster,
+            x_offset: glyph.x_offset,
+            y_offset: glyph.y_offset,
+            x_advance: glyph.x_advance + addition,
+            y_advance: glyph.y_advance
+          )
+        else
+          glyph
+        end
+      end
+
+      {justified, width + extra}
     end
 
     private def append_shaped_run!(

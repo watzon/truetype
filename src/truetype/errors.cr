@@ -251,12 +251,15 @@ module TrueType
       @errors.clear
       @warnings.clear
 
+      validate_table_directory
       validate_required_tables
       validate_head
       validate_hhea
       validate_maxp
+      validate_hmtx
       validate_cmap
       validate_name
+      validate_opentype_layout_tables
 
       if @font.truetype?
         validate_loca
@@ -266,6 +269,25 @@ module TrueType
       end
 
       ValidationResult.new(@errors.empty?, @warnings.warnings.dup, @errors.dup)
+    end
+
+    private def validate_table_directory
+      data_size = @font.data.size.to_i64
+
+      @font.table_records.each do |tag, record|
+        offset = record.offset.to_i64
+        length = record.length.to_i64
+        end_offset = offset + length
+
+        if offset < 0 || offset >= data_size
+          @errors << "Table #{tag} offset is out of bounds"
+          next
+        end
+
+        if length < 0 || end_offset > data_size
+          @errors << "Table #{tag} length extends beyond font data"
+        end
+      end
     end
 
     private def validate_required_tables
@@ -309,6 +331,10 @@ module TrueType
       if hhea.number_of_h_metrics == 0
         @errors << "hhea numberOfHMetrics is 0"
       end
+
+      if @font.has_table?("maxp") && hhea.number_of_h_metrics > @font.maxp.num_glyphs
+        @errors << "hhea numberOfHMetrics exceeds numGlyphs"
+      end
     end
 
     private def validate_maxp
@@ -318,6 +344,33 @@ module TrueType
       if maxp.num_glyphs == 0
         @warnings.warn("Font has 0 glyphs", table: "maxp")
       end
+    end
+
+    private def validate_hmtx
+      return unless @font.has_table?("hmtx")
+      return unless @font.has_table?("hhea")
+      return unless @font.has_table?("maxp")
+
+      expected_h_metrics = @font.hhea.number_of_h_metrics.to_i
+      expected_lsb = @font.maxp.num_glyphs.to_i - expected_h_metrics
+      expected_lsb = 0 if expected_lsb < 0
+
+      hmtx = @font.hmtx
+      if hmtx.h_metrics.size != expected_h_metrics
+        @warnings.warn(
+          "hmtx has #{hmtx.h_metrics.size} hMetrics, expected #{expected_h_metrics}",
+          table: "hmtx"
+        )
+      end
+
+      if hmtx.left_side_bearings.size != expected_lsb
+        @warnings.warn(
+          "hmtx has #{hmtx.left_side_bearings.size} extra LSB entries, expected #{expected_lsb}",
+          table: "hmtx"
+        )
+      end
+    rescue ex
+      @errors << "Failed to parse hmtx table: #{ex.message}"
     end
 
     private def validate_cmap
@@ -341,6 +394,21 @@ module TrueType
       if name.postscript_name.nil?
         @warnings.warn("No PostScript name in name table", table: "name")
       end
+    end
+
+    private def validate_opentype_layout_tables
+      validate_optional_layout_table("GDEF") { |data, offset, length| Tables::OpenType::GDEF.parse(data, offset, length) }
+      validate_optional_layout_table("GSUB") { |data, offset, length| Tables::OpenType::GSUB.parse(data, offset, length) }
+      validate_optional_layout_table("GPOS") { |data, offset, length| Tables::OpenType::GPOS.parse(data, offset, length) }
+    end
+
+    private def validate_optional_layout_table(tag : String, & : Bytes, UInt32, UInt32 ->)
+      record = @font.table_records[tag]?
+      return unless record
+
+      yield @font.data, record.offset, record.length
+    rescue ex
+      @warnings.recovered("Malformed optional layout table ignored: #{ex.message}", table: tag)
     end
 
     private def validate_loca

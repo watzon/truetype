@@ -128,6 +128,80 @@ describe TrueType::TextLayout do
       para = layout.layout("A\n\nB")
       para.line_count.should eq(3) # "A", empty line, "B"
     end
+
+    it "applies right alignment offsets when max_width is larger than line width" do
+      font = TrueType::Font.open(FONT_PATH)
+      layout = TrueType::TextLayout.new(font)
+      text = "Hello"
+      max_width = layout.measure_width(text) + 500
+
+      para = layout.layout(text, TrueType::LayoutOptions.new(max_width: max_width, align: TrueType::TextAlign::Right))
+      line = para.lines.first
+
+      line.glyphs.first.x_offset.should eq(max_width - line.width)
+    end
+
+    it "applies center alignment offsets when max_width is larger than line width" do
+      font = TrueType::Font.open(FONT_PATH)
+      layout = TrueType::TextLayout.new(font)
+      text = "Hello"
+      max_width = layout.measure_width(text) + 600
+
+      para = layout.layout(text, TrueType::LayoutOptions.new(max_width: max_width, align: TrueType::TextAlign::Center))
+      line = para.lines.first
+
+      line.glyphs.first.x_offset.should eq((max_width - line.width) // 2)
+    end
+
+    it "supports justified alignment for wrapped lines" do
+      font = TrueType::Font.open(FONT_PATH)
+      layout = TrueType::TextLayout.new(font)
+      text = "A B C D E F"
+      max_width = layout.measure_width("A B C")
+
+      para = layout.layout(text, TrueType::LayoutOptions.new(max_width: max_width, align: TrueType::TextAlign::Justify))
+      para.line_count.should be > 1
+      para.lines.first.width.should eq(max_width)
+    end
+
+    it "applies line_height to paragraph height and line positioning" do
+      font = TrueType::Font.open(FONT_PATH)
+      layout = TrueType::TextLayout.new(font)
+      text = "Line1\nLine2"
+
+      normal = layout.layout(text, TrueType::LayoutOptions.new(line_height: 1.0))
+      expanded = layout.layout(text, TrueType::LayoutOptions.new(line_height: 1.6))
+
+      expanded.height.should be > normal.height
+
+      normal_positions = [] of Int32
+      normal.each_line_with_position { |_line, y| normal_positions << y }
+
+      expanded_positions = [] of Int32
+      expanded.each_line_with_position { |_line, y| expanded_positions << y }
+
+      (expanded_positions[1] - expanded_positions[0]).should be > (normal_positions[1] - normal_positions[0])
+    end
+
+    it "applies hyphen_char when wrapping breaks inside a word" do
+      font = TrueType::Font.open(FONT_PATH)
+      layout = TrueType::TextLayout.new(font)
+      text = "supercalifragilisticexpialidocious"
+      hyphenated = false
+
+      200.step(to: 3000, by: 100) do |width|
+        options = TrueType::LayoutOptions.new(max_width: width, word_wrap: false, hyphen_char: '-')
+        para = layout.layout(text, options)
+        next unless para.line_count > 1
+
+        if para.lines.first.glyphs.any? { |glyph| glyph.codepoint == '-'.ord.to_u32 }
+          hyphenated = true
+          break
+        end
+      end
+
+      hyphenated.should be_true
+    end
   end
 
   describe "#find_break_point" do

@@ -210,9 +210,9 @@ describe TrueType::Font do
     it "renders text with cumulative positions" do
       font = TrueType::Font.open(FONT_PATH)
       glyphs = font.render("Hi")
-      
+
       glyphs.size.should eq(2)
-      glyphs[0].x_offset.should eq(0) # First glyph at origin
+      glyphs[0].x_offset.should eq(0)  # First glyph at origin
       glyphs[1].x_offset.should be > 0 # Second glyph after first
     end
   end
@@ -281,10 +281,92 @@ describe TrueType::Font do
     it "subset can be parsed as a valid font" do
       font = TrueType::Font.open(FONT_PATH)
       subset = font.subset("Hello World!")
-      
+
       # The subset should be parseable
       subset_font = TrueType::Font.open(subset)
       subset_font.glyph_count.should be < font.glyph_count
+    end
+
+    it "applies include_notdef option" do
+      font = TrueType::Font.open(FONT_PATH)
+
+      with_notdef = font.subset("A", TrueType::SubsetOptions.new(include_notdef: true))
+      without_notdef = font.subset("A", TrueType::SubsetOptions.new(include_notdef: false))
+
+      with_font = TrueType::Font.open(with_notdef)
+      without_font = TrueType::Font.open(without_notdef)
+
+      with_font.glyph_count.should be > without_font.glyph_count
+    end
+
+    it "applies preserve_hints option for hinting tables" do
+      font = TrueType::Font.open(FONT_PATH)
+      next unless font.parser.has_table?("fpgm")
+
+      with_hints = font.subset("Hello", TrueType::SubsetOptions.new(preserve_hints: true))
+      without_hints = font.subset("Hello", TrueType::SubsetOptions.new(preserve_hints: false))
+
+      with_parser = TrueType::Parser.parse(with_hints)
+      without_parser = TrueType::Parser.parse(without_hints)
+
+      with_parser.has_table?("fpgm").should be_true
+      without_parser.has_table?("fpgm").should be_false
+    end
+
+    it "applies preserve_layout and preserve_kerning options" do
+      font = TrueType::Font.open(FONT_PATH)
+
+      with_layout = font.subset("Hello", TrueType::SubsetOptions.new(preserve_layout: true, preserve_kerning: true))
+      without_layout = font.subset("Hello", TrueType::SubsetOptions.new(preserve_layout: false, preserve_kerning: false))
+
+      with_parser = TrueType::Parser.parse(with_layout)
+      without_parser = TrueType::Parser.parse(without_layout)
+
+      if font.parser.has_table?("GSUB")
+        with_parser.has_table?("GSUB").should be_true
+        without_parser.has_table?("GSUB").should be_false
+      end
+
+      if font.parser.has_table?("kern")
+        with_parser.has_table?("kern").should be_true
+        without_parser.has_table?("kern").should be_false
+      end
+    end
+
+    it "applies subset_names option" do
+      font = TrueType::Font.open(FONT_PATH)
+
+      compact = font.subset("Hello", TrueType::SubsetOptions.new(subset_names: true))
+      full = font.subset("Hello", TrueType::SubsetOptions.new(subset_names: false))
+
+      compact_name_records = TrueType::Parser.parse(compact).name.records.size
+      full_name_records = TrueType::Parser.parse(full).name.records.size
+
+      compact_name_records.should be <= full_name_records
+    end
+
+    it "can emit WOFF subset output" do
+      font = TrueType::Font.open(FONT_PATH)
+      subset = font.subset("Hello", TrueType::SubsetOptions.new(output_format: :woff))
+
+      TrueType::Font.detect_format(subset).should eq(:woff)
+      TrueType::Font.open(subset).glyph_count.should be > 0
+    end
+
+    it "can emit WOFF2 subset output" do
+      font = TrueType::Font.open(FONT_PATH)
+      subset = font.subset("Hello", TrueType::SubsetOptions.new(output_format: :woff2))
+
+      TrueType::Font.detect_format(subset).should eq(:woff2)
+      TrueType::Font.open(subset).glyph_count.should be > 0
+    end
+
+    it "rejects impossible sfnt flavor conversions" do
+      font = TrueType::Font.open(FONT_PATH)
+
+      expect_raises(TrueType::SubsetError) do
+        font.subset("Hello", TrueType::SubsetOptions.new(output_format: :otf))
+      end
     end
   end
 
@@ -300,6 +382,40 @@ describe TrueType::Font do
       result = font.validate
       result.should be_a(TrueType::ValidationResult)
       result.summary.should contain("valid")
+    end
+
+    it "recovers from malformed optional OpenType layout tables" do
+      raw = File.read(FONT_PATH).to_slice
+      parser = TrueType::Parser.parse(raw)
+      next unless parser.has_table?("GPOS")
+
+      broken = Bytes.new(raw.size)
+      broken.copy_from(raw)
+
+      io = IO::Memory.new(broken)
+      io.skip(4) # sfnt version
+      num_tables = io.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+      io.skip(6) # search params
+
+      num_tables.times do
+        tag = String.new(Bytes.new(4).tap { |b| io.read_fully(b) })
+        io.skip(8) # checksum + offset
+
+        if tag == "GPOS"
+          # Make the optional table intentionally too short.
+          io.write_bytes(2_u32, IO::ByteFormat::BigEndian)
+          break
+        else
+          io.skip(4) # length
+        end
+      end
+
+      font = TrueType::Font.open(broken)
+      result = font.validate
+
+      result.valid?.should be_true
+      result.warnings.any? { |w| w.table == "GPOS" && w.severity == :error }.should be_true
+      font.shape("AV").size.should be > 0
     end
   end
 

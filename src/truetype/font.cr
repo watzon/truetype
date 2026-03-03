@@ -815,24 +815,36 @@ module TrueType
 
     # Create a subset from a set of characters.
     def subset(chars : Set(Char), options : SubsetOptions = SubsetOptions.default) : Bytes
-      subsetter = Subsetter.new(@parser)
-
-      # Add .notdef if requested
-      # (Subsetter already includes glyph 0 by default)
+      subsetter = Subsetter.new(@parser, options)
 
       # Add all characters
       chars.each { |c| subsetter.use(c) }
 
-      # Generate subset
-      # TODO: Apply SubsetOptions for hints, layout tables, etc.
-      # Current implementation is basic - options are for future expansion
-      subsetter.subset
+      subset_data = subsetter.subset
+      convert_subset_format(subset_data, options)
     end
 
     # Create a subset from a set of codepoints.
     def subset(codepoints : Set(UInt32), options : SubsetOptions = SubsetOptions.default) : Bytes
       chars = codepoints.map { |cp| cp.chr rescue nil }.compact.to_set
       subset(chars, options)
+    end
+
+    private def convert_subset_format(subset_data : Bytes, options : SubsetOptions) : Bytes
+      case options.output_format
+      when :ttf
+        raise SubsetError.new("Cannot emit :ttf output for a CFF-based subset") unless @parser.truetype?
+        subset_data
+      when :otf
+        raise SubsetError.new("Cannot emit :otf output for a TrueType glyf-based subset") unless @parser.cff?
+        subset_data
+      when :woff
+        Woff.from_sfnt(subset_data)
+      when :woff2
+        Woff2.from_sfnt(subset_data)
+      else
+        raise SubsetError.new("Unsupported subset output format: #{options.output_format}")
+      end
     end
 
     # ===== Color Fonts =====

@@ -28,6 +28,16 @@ describe TrueType::Subsetter do
       subset_parser.maxp.num_glyphs.should be >= 2 # At least .notdef and 'A'
     end
 
+    it "can omit .notdef when include_notdef is disabled" do
+      parser = TrueType::Parser.parse(SUBSETTER_FONT_PATH)
+      subsetter = TrueType::Subsetter.new(parser, TrueType::SubsetOptions.new(include_notdef: false))
+      subsetter.use("A")
+
+      subset_data = subsetter.subset
+      subset_parser = TrueType::Parser.parse(subset_data)
+      subset_parser.maxp.num_glyphs.should eq(1_u16)
+    end
+
     it "includes component glyphs for composite glyphs" do
       parser = TrueType::Parser.parse(SUBSETTER_FONT_PATH)
       subsetter = TrueType::Subsetter.new(parser)

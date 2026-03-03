@@ -491,35 +491,35 @@ Close the remaining behavior gaps so the library reaches complete functional cov
 
 ### Subsetting Completion
 
-- [ ] Apply `SubsetOptions#include_notdef`
-- [ ] Apply `SubsetOptions#preserve_hints` (retain or strip hinting tables and instructions)
-- [ ] Apply `SubsetOptions#preserve_layout` (retain/subset GSUB/GPOS/GDEF as configured)
-- [ ] Apply `SubsetOptions#preserve_kerning` for `kern` and GPOS pair kerning data
-- [ ] Apply `SubsetOptions#subset_names` (minimal name table mode)
-- [ ] Apply `SubsetOptions#remove_signature` (DSIG handling)
-- [ ] Implement output conversion for subset result (`:ttf`, `:otf`, `:woff`, `:woff2`)
+- [x] Apply `SubsetOptions#include_notdef`
+- [x] Apply `SubsetOptions#preserve_hints` (retain or strip hinting tables and instructions)
+- [x] Apply `SubsetOptions#preserve_layout` (retain/subset GSUB/GPOS/GDEF as configured)
+- [x] Apply `SubsetOptions#preserve_kerning` for `kern` and GPOS pair kerning data
+- [x] Apply `SubsetOptions#subset_names` (minimal name table mode)
+- [x] Apply `SubsetOptions#remove_signature` (DSIG handling)
+- [x] Implement output conversion for subset result (`:ttf`, `:otf`, `:woff`, `:woff2`)
 
 ### Layout Completion
 
-- [ ] Implement alignment offsets in output glyph positions
-- [ ] Implement `LayoutOptions#direction` behavior
-- [ ] Apply `line_height` to paragraph y-positioning and total layout height
-- [ ] Implement hyphenation path using `hyphen_char`
-- [ ] Add layout regression tests for all options
+- [x] Implement alignment offsets in output glyph positions
+- [x] Implement `LayoutOptions#direction` behavior
+- [x] Apply `line_height` to paragraph y-positioning and total layout height
+- [x] Implement hyphenation path using `hyphen_char`
+- [x] Add layout regression tests for all options
 
 ### Validation & Robustness Completion
 
-- [ ] Expand validation beyond required-table checks (cross-table consistency and bounds)
-- [ ] Add stricter OpenType layout table validation for malformed offsets/lengths
-- [ ] Ensure optional malformed tables degrade gracefully without crashing high-level APIs
+- [x] Expand validation beyond required-table checks (cross-table consistency and bounds)
+- [x] Add stricter OpenType layout table validation for malformed offsets/lengths
+- [x] Ensure optional malformed tables degrade gracefully without crashing high-level APIs
 - [ ] Add corpus-based malformed font tests and fuzzing harness
 
 ### Completion Criteria
 
 - [ ] `font.shape` fallback path applies GSUB/GPOS features sufficiently for non-complex Latin typography
 - [ ] `shape_best_effort` behavior is predictable with and without HarfBuzz
-- [ ] All `SubsetOptions` flags are observable in tests
-- [ ] `LayoutOptions` fields all affect output behavior and are covered by tests
+- [x] All `SubsetOptions` flags are observable in tests
+- [x] `LayoutOptions` fields all affect output behavior and are covered by tests
 - [x] Bidi conformance tests are green
 - [ ] No known crashers on malformed optional tables in default API paths
 
@@ -535,17 +535,17 @@ Enhancements to make the library easier to use.
 - [ ] `font.shape(text, features)` full feature behavior in default path
 - [x] `font.render(text)` returning positioned glyphs with cumulative positions
 - [x] `font.instance(weight: 700, width: 100)` for variable fonts
-- [ ] `font.subset(chars)` with full options behavior (hints/layout/kerning/names/signature)
-- [ ] Subset output conversion (`:ttf`, `:otf`, `:woff`, `:woff2`)
+- [x] `font.subset(chars)` with full options behavior (hints/layout/kerning/names/signature)
+- [x] Subset output conversion (`:ttf`, `:otf`, `:woff`, `:woff2`)
 
 ### Text Layout (In Progress)
 
 - [x] Basic text width calculation with kerning
 - [x] Line breaking support with configurable max width
-- [ ] Alignments (`Left`, `Center`, `Right`, `Justify`) applied to glyph positions
+- [x] Alignments (`Left`, `Center`, `Right`, `Justify`) applied to glyph positions
 - [x] Directional layout option (`LeftToRight`, `RightToLeft`) applied in line ordering
-- [ ] `line_height` applied to paragraph layout output (not just measurement helper)
-- [ ] Hyphenation behavior (`hyphen_char`) in wrap logic
+- [x] `line_height` applied to paragraph layout output (not just measurement helper)
+- [x] Hyphenation behavior (`hyphen_char`) in wrap logic
 - [x] Bi-directional text support (UAX #9)
 - [ ] Shaping-aware line breaking and layout integration
 
@@ -555,7 +555,7 @@ Enhancements to make the library easier to use.
 - [x] Font validation mode (`font.validate`)
 - [x] Graceful handling of many malformed fonts
 - [x] Warning collection for non-fatal issues
-- [ ] Recover from non-`ParseError` optional-table decode failures (for example `IO::EOFError`)
+- [x] Recover from non-`ParseError` optional-table decode failures (for example `IO::EOFError`)
 - [ ] Normalize exception surface for malformed layout tables
 
 ### Performance
@@ -577,7 +577,7 @@ Enhancements to make the library easier to use.
 - [x] Variable font interpolation tests
 - [x] Color font table tests
 - [ ] Behavior tests for full GSUB/GPOS application outcomes
-- [ ] Subset option behavior tests (`SubsetOptions` flags + output format)
+- [x] Subset option behavior tests (`SubsetOptions` flags + output format)
 - [ ] Malformed-font resilience/fuzz tests for optional tables
 - [x] Bidi conformance tests (UAX #9 test suites)
 
