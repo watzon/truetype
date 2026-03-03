@@ -4,15 +4,14 @@
 
 ## Current Status
 
-The library provides a comprehensive foundation for TrueType/OpenType parsing and table access. Table parsing coverage is broad, but **end-to-end behavior is not yet complete** in shaping, layout, subsetting options, bidi, and validation depth.
+The library provides a comprehensive foundation for TrueType/OpenType parsing and table access. Table parsing coverage is broad, and Phase 9 completion/hardening is now in place for subsetting, layout options, bidi support, and malformed optional-table resilience.
 
-**Remaining major features** (Phases 7-9):
+**Remaining major features** (post-Phase-9):
 
-- Full GSUB/GPOS lookup application in the default shaping path (non-HarfBuzz)
-- Bidirectional text support (UAX #9) for mixed LTR/RTL text
-- Full `SubsetOptions` behavior and subset output format conversion
-- Full layout option behavior (`align`, `direction`, `line_height`, hyphenation)
-- Validation hardening and malformed-font resilience
+- Full GSUB/GPOS behavior parity in the default shaping path (non-HarfBuzz), especially for advanced/contextual lookups and complex scripts
+- Shaping-aware line breaking and layout integration
+- Exception-surface normalization for malformed layout tables
+- Optional TrueType bytecode interpreter
 
 ### What Works Today
 
@@ -24,7 +23,7 @@ The library provides a comprehensive foundation for TrueType/OpenType parsing an
 | **Font Metrics**      | Units per em, ascender, descender, cap height, bounding box                 | Complete                                                 |
 | **Glyph Metrics**     | Advance widths, glyph IDs, character widths                                 | Complete                                                 |
 | **Font Info**         | PostScript name, family name, style flags (bold/italic/monospace)           | Complete                                                 |
-| **Subsetting**        | TrueType/CFF glyph subsetting core path                                     | Partial (options/output format pending)                  |
+| **Subsetting**        | TrueType/CFF glyph subsetting + `SubsetOptions` behavior + output conversion | Complete                                                 |
 | **PDF Support**       | Font descriptor flags, StemV estimation                                     | Complete                                                 |
 | **Kerning**           | `kern` table (format 0, 2), GPOS pair-kerning helper                        | Complete                                                 |
 | **CFF/OTF**           | CFF table parsing, CharStrings, outline extraction, subsetting              | Complete                                                 |
@@ -37,9 +36,9 @@ The library provides a comprehensive foundation for TrueType/OpenType parsing an
 | **Color Fonts**       | `CPAL`, `COLR` v0/v1, `SVG `, `CBDT`/`CBLC`, `sbix`                         | Complete                                                 |
 | **Hinting Tables**    | `cvt `, `fpgm`, `prep`, `gasp`, `hdmx`, `LTSH`, `VDMX`                      | Complete                                                 |
 | **Extended Formats**  | CFF2, MATH, BASE, JSTF, DSIG, meta, PCLT, EBLC/EBDT/EBSC                    | Complete                                                 |
-| **High-Level API**    | `Font.open`, `font.render`, `font.instance`, `font.subset`, `font.validate` | Partial (some behavior flags pending)                    |
-| **Text Layout**       | Measurement and line breaking                                               | Basic (alignment/direction/line-height behavior pending) |
-| **Validation**        | Structural checks and warnings collection                                   | Basic (deep validation pending)                          |
+| **High-Level API**    | `Font.open`, `font.render`, `font.instance`, `font.subset`, `font.validate` | Mostly complete (full default-shaper feature parity pending) |
+| **Text Layout**       | Measurement, wrapping, alignment/direction, line height, hyphenation, bidi  | Complete for current API (shaping-aware wrapping pending) |
+| **Validation**        | Structural checks, cross-table checks, warnings, malformed optional-table recovery | Complete for current criteria (exception normalization pending) |
 
 ### What's NOT Yet Supported
 
@@ -48,12 +47,8 @@ The library provides a comprehensive foundation for TrueType/OpenType parsing an
 | **Text Shaping** | Full OpenType shaping (GSUB/GPOS lookup application)                           | Phase 7  |
 | **Text Shaping** | Complex script shapers (Arabic, Indic, Thai, etc.)                             | Phase 7  |
 | **Text Shaping** | Parity in non-HarfBuzz fallback shaper                                         | Phase 7  |
-| **Bidi**         | Unicode Bidirectional Algorithm (UAX #9)                                       | Phase 8  |
-| **Bidi**         | Mixed LTR/RTL text layout                                                      | Phase 8  |
-| **Subsetting**   | `SubsetOptions` behavior + subset output format conversion                     | Phase 9  |
-| **Layout**       | Full layout option behavior (`align`, `direction`, `line_height`, hyphenation) | Phase 9  |
-| **Validation**   | Deep validation beyond structural checks                                       | Phase 9  |
-| **Resilience**   | Robust handling of malformed optional layout tables                            | Phase 9  |
+| **Text Layout**  | Shaping-aware line breaking and layout integration                              | In Progress |
+| **Errors**       | Normalized exception surface for malformed layout tables                        | In Progress |
 | **Hinting**      | TrueType bytecode interpreter                                                  | Optional |
 
 ---
@@ -512,16 +507,16 @@ Close the remaining behavior gaps so the library reaches complete functional cov
 - [x] Expand validation beyond required-table checks (cross-table consistency and bounds)
 - [x] Add stricter OpenType layout table validation for malformed offsets/lengths
 - [x] Ensure optional malformed tables degrade gracefully without crashing high-level APIs
-- [ ] Add corpus-based malformed font tests and fuzzing harness
+- [x] Add corpus-based malformed font tests and fuzzing harness
 
 ### Completion Criteria
 
-- [ ] `font.shape` fallback path applies GSUB/GPOS features sufficiently for non-complex Latin typography
-- [ ] `shape_best_effort` behavior is predictable with and without HarfBuzz
+- [x] `font.shape` fallback path applies GSUB/GPOS features sufficiently for non-complex Latin typography
+- [x] `shape_best_effort` behavior is predictable with and without HarfBuzz
 - [x] All `SubsetOptions` flags are observable in tests
 - [x] `LayoutOptions` fields all affect output behavior and are covered by tests
 - [x] Bidi conformance tests are green
-- [ ] No known crashers on malformed optional tables in default API paths
+- [x] No known crashers on malformed optional tables in default API paths
 
 ---
 
@@ -578,7 +573,7 @@ Enhancements to make the library easier to use.
 - [x] Color font table tests
 - [ ] Behavior tests for full GSUB/GPOS application outcomes
 - [x] Subset option behavior tests (`SubsetOptions` flags + output format)
-- [ ] Malformed-font resilience/fuzz tests for optional tables
+- [x] Malformed-font resilience/fuzz tests for optional tables
 - [x] Bidi conformance tests (UAX #9 test suites)
 
 ### Test Fonts

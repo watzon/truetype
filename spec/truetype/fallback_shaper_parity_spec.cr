@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "../support/malformed_font_helpers"
 
 describe TrueType::Font do
   describe "fallback shaper parity" do
@@ -51,6 +52,27 @@ describe TrueType::Font do
 
       shaped.map(&.id).should_not eq(unmapped)
       shaped.any? { |glyph| glyph.x_offset != 0 || glyph.y_offset != 0 }.should be_true
+    end
+
+    it "applies Latin shaping behavior and stays resilient if legacy kern is malformed" do
+      pristine_font = TrueType::Font.open(FONT_PATH)
+
+      with_kern = pristine_font.shape("AV", TrueType::ShapingOptions.new(script: "latn", kerning: true, features: ["kern"] of String))
+      without_kern = pristine_font.shape("AV", TrueType::ShapingOptions.new(script: "latn", kerning: false, features: ["-kern"] of String))
+      with_kern.map { |g| {g.id, g.cluster, g.x_offset, g.y_offset, g.x_advance, g.y_advance} }
+        .should_not eq(without_kern.map { |g| {g.id, g.cluster, g.x_offset, g.y_offset, g.x_advance, g.y_advance} })
+
+      raw = File.read(FONT_PATH).to_slice
+      broken = MalformedFontHelpers.mutate_table_length(raw, "kern", 2_u32)
+      broken.should_not be_nil
+
+      font = TrueType::Font.open(broken.not_nil!)
+
+      with_liga = font.shape("office", TrueType::ShapingOptions.new(script: "latn", features: ["liga"] of String))
+      without_liga = font.shape("office", TrueType::ShapingOptions.new(script: "latn", ligatures: false, features: ["-liga"] of String))
+      with_liga.size.should be < without_liga.size
+
+      font.shape("AV", TrueType::ShapingOptions.new(script: "latn", kerning: true, features: ["kern"] of String)).size.should eq(2)
     end
 
     it "keeps shaping deterministic across fonts with and without optional layout tables" do

@@ -238,6 +238,8 @@ module TrueType
       @kern ||= begin
         data = table_data("kern")
         data ? Tables::Kern.parse(data) : nil
+      rescue
+        nil
       end
     end
 
