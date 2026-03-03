@@ -4,40 +4,41 @@
 
 ## Current Status
 
-The library provides a comprehensive foundation for TrueType font parsing and subsetting, covering approximately **90% of a production-ready implementation**. It's sufficient for PDF font embedding, supports web font formats, variable fonts, color fonts, CFF2 variable fonts, mathematical typesetting (MATH table), and handles virtually all font types encountered in the wild.
+The library provides a comprehensive foundation for TrueType/OpenType parsing and table access. Table parsing coverage is broad, but **end-to-end behavior is not yet complete** in shaping, layout, subsetting options, bidi, and validation depth.
 
-**Remaining major features** (Phases 7-8):
-- Full OpenType text shaping for complex scripts (Arabic, Hebrew, Indic, Thai, etc.)
+**Remaining major features** (Phases 7-9):
+- Full GSUB/GPOS lookup application in the default shaping path (non-HarfBuzz)
 - Bidirectional text support (UAX #9) for mixed LTR/RTL text
+- Full `SubsetOptions` behavior and subset output format conversion
+- Full layout option behavior (`align`, `direction`, `line_height`, hyphenation)
+- Validation hardening and malformed-font resilience
 
 ### What Works Today
 
-| Category              | Features                                                          | Status   |
-| --------------------- | ----------------------------------------------------------------- | -------- |
-| **Core Tables**       | `head`, `hhea`, `hmtx`, `maxp`, `cmap`, `name`, `post`, `OS/2`    | Complete |
-| **TrueType Outlines** | `glyf`, `loca` table parsing                                      | Complete |
-| **Character Mapping** | cmap formats 0, 4, 6, 12                                          | Complete |
-| **Font Metrics**      | Units per em, ascender, descender, cap height, bounding box       | Complete |
-| **Glyph Metrics**     | Advance widths, glyph IDs, character widths                       | Complete |
-| **Font Info**         | PostScript name, family name, style flags (bold/italic/monospace) | Complete |
-| **Subsetting**        | TrueType and CFF glyph subsetting with composite glyph support    | Complete |
-| **PDF Support**       | Font descriptor flags, StemV estimation                           | Complete |
-| **Kerning**           | `kern` table (format 0, 2), kerning API, text width with kerning  | Complete |
-| **CFF/OTF**           | CFF table parsing, CharStrings, outline extraction, subsetting    | Complete |
-| **WOFF**              | Header parsing, zlib decompression, sfnt conversion               | Complete |
-| **WOFF2**             | Header parsing, Brotli decompression, sfnt reconstruction         | Complete |
-| **Font Collections**  | TTC/OTC parsing, multi-font access                                | Complete |
-| **Glyph Outlines**    | Contour extraction, SVG path export, bounding boxes               | Complete |
-| **Vertical Metrics**  | `vhea`, `vmtx`, `VORG` tables, vertical writing support           | Complete |
-| **OpenType Layout**   | `GDEF`, `GSUB`, `GPOS` tables, feature parsing                    | Complete |
-| **Variable Fonts**    | `fvar`, `gvar`, `avar`, `HVAR`, `VVAR`, `MVAR`, `cvar`, `STAT`    | Complete |
-| **Color Fonts**       | `CPAL`, `COLR` v0/v1, `SVG `, `CBDT`/`CBLC`, `sbix`               | Complete |
-| **Hinting Tables**    | `cvt `, `fpgm`, `prep`, `gasp`, `hdmx`, `LTSH`, `VDMX`            | Complete |
-| **Extended Formats**  | CFF2, MATH, BASE, JSTF, DSIG, meta, PCLT, EBLC/EBDT/EBSC          | Complete |
-| **Extended cmap**     | cmap formats 2, 13, 14 (UVS)                                       | Complete |
-| **High-Level API**    | `Font.open`, `font.shape`, `font.render`, `font.subset`, `font.instance` | Complete |
-| **Text Layout**       | Text measurement, line breaking, paragraph layout                  | Complete |
-| **Validation**        | Font validation, warnings collection, detailed error messages      | Complete |
+| Category              | Features                                                                       | Status |
+| --------------------- | ------------------------------------------------------------------------------ | ------ |
+| **Core Tables**       | `head`, `hhea`, `hmtx`, `maxp`, `cmap`, `name`, `post`, `OS/2`                | Complete |
+| **TrueType Outlines** | `glyf`, `loca` table parsing                                                   | Complete |
+| **Character Mapping** | cmap formats 0, 2, 4, 6, 12, 13, 14                                            | Complete |
+| **Font Metrics**      | Units per em, ascender, descender, cap height, bounding box                   | Complete |
+| **Glyph Metrics**     | Advance widths, glyph IDs, character widths                                    | Complete |
+| **Font Info**         | PostScript name, family name, style flags (bold/italic/monospace)             | Complete |
+| **Subsetting**        | TrueType/CFF glyph subsetting core path                                        | Partial (options/output format pending) |
+| **PDF Support**       | Font descriptor flags, StemV estimation                                        | Complete |
+| **Kerning**           | `kern` table (format 0, 2), GPOS pair-kerning helper                           | Complete |
+| **CFF/OTF**           | CFF table parsing, CharStrings, outline extraction, subsetting                 | Complete |
+| **WOFF/WOFF2 Input**  | Header parsing, decompression, sfnt reconstruction                              | Complete |
+| **Font Collections**  | TTC/OTC parsing, multi-font access                                             | Complete |
+| **Glyph Outlines**    | Contour extraction, SVG path export, bounding boxes                            | Complete |
+| **Vertical Metrics**  | `vhea`, `vmtx`, `VORG` tables, vertical writing support                        | Complete |
+| **OpenType Layout**   | `GDEF`, `GSUB`, `GPOS` parsing and feature registry                             | Parsed (application partial) |
+| **Variable Fonts**    | `fvar`, `gvar`, `avar`, `HVAR`, `VVAR`, `MVAR`, `cvar`, `STAT`                | Complete |
+| **Color Fonts**       | `CPAL`, `COLR` v0/v1, `SVG `, `CBDT`/`CBLC`, `sbix`                            | Complete |
+| **Hinting Tables**    | `cvt `, `fpgm`, `prep`, `gasp`, `hdmx`, `LTSH`, `VDMX`                         | Complete |
+| **Extended Formats**  | CFF2, MATH, BASE, JSTF, DSIG, meta, PCLT, EBLC/EBDT/EBSC                      | Complete |
+| **High-Level API**    | `Font.open`, `font.render`, `font.instance`, `font.subset`, `font.validate`   | Partial (some behavior flags pending) |
+| **Text Layout**       | Measurement and line breaking                                                   | Basic (alignment/direction/line-height behavior pending) |
+| **Validation**        | Structural checks and warnings collection                                       | Basic (deep validation pending) |
 
 ### What's NOT Yet Supported
 
@@ -45,9 +46,13 @@ The library provides a comprehensive foundation for TrueType font parsing and su
 |----------|---------|--------|
 | **Text Shaping** | Full OpenType shaping (GSUB/GPOS lookup application) | Phase 7 |
 | **Text Shaping** | Complex script shapers (Arabic, Indic, Thai, etc.) | Phase 7 |
-| **Text Shaping** | HarfBuzz integration | Phase 7 |
+| **Text Shaping** | Parity in non-HarfBuzz fallback shaper | Phase 7 |
 | **Bidi** | Unicode Bidirectional Algorithm (UAX #9) | Phase 8 |
 | **Bidi** | Mixed LTR/RTL text layout | Phase 8 |
+| **Subsetting** | `SubsetOptions` behavior + subset output format conversion | Phase 9 |
+| **Layout** | Full layout option behavior (`align`, `direction`, `line_height`, hyphenation) | Phase 9 |
+| **Validation** | Deep validation beyond structural checks | Phase 9 |
+| **Resilience** | Robust handling of malformed optional layout tables | Phase 9 |
 | **Hinting** | TrueType bytecode interpreter | Optional |
 
 ---
@@ -109,7 +114,7 @@ Essential features for handling the majority of font files in the wild.
 
 ---
 
-## Phase 2: OpenType Layout (In Progress)
+## Phase 2: OpenType Layout (Parsing Complete, Application In Progress)
 
 Features required for proper typography and international text support.
 
@@ -133,7 +138,7 @@ Features required for proper typography and international text support.
 - [x] Lookup Type 7: Context positioning
 - [x] Lookup Type 8: Chained context positioning
 - [x] Lookup Type 9: Extension positioning
-- [x] Apply GPOS features by tag (`kern`, `mark`, `mkmk`, etc.)
+- [ ] Apply GPOS features in shaping pipeline (`kern`, `mark`, `mkmk`, etc.) (currently partial)
 
 ### GSUB Table (Glyph Substitution) ✅
 
@@ -146,7 +151,7 @@ Features required for proper typography and international text support.
 - [x] Lookup Type 6: Chained context substitution
 - [x] Lookup Type 7: Extension substitution
 - [x] Lookup Type 8: Reverse chaining substitution
-- [x] Apply GSUB features by tag (`liga`, `clig`, `dlig`, `calt`, etc.)
+- [ ] Apply GSUB features in shaping pipeline (`liga`, `clig`, `dlig`, `calt`, etc.) (currently partial)
 
 ### Coverage & Class Definition Tables ✅
 
@@ -155,7 +160,7 @@ Features required for proper typography and international text support.
 - [x] Parse ClassDef Format 1 (array)
 - [x] Parse ClassDef Format 2 (range records)
 
-### Feature Registry Support ✅
+### Feature Registry Support (Parsing) ✅
 
 - [x] Common ligatures (`liga`)
 - [x] Contextual ligatures (`clig`)
@@ -169,6 +174,16 @@ Features required for proper typography and international text support.
 - [x] Localized forms (`locl`)
 
 > **Note**: Context-based lookups (Types 5-8) are fully parsed. The structures are complete and ready for use in a shaping engine. Full text shaping requires implementing lookup application logic that chains nested lookups.
+
+### Lookup Application Engine (Pending)
+
+- [ ] Script/language system selection for feature activation
+- [ ] GSUB Lookup Type 1-4 application in default shaper
+- [ ] GSUB Lookup Type 5-8 (context/chaining/reverse) application
+- [ ] GPOS single adjustment application in default shaper
+- [ ] GPOS mark/cursive attachment application
+- [ ] Lookup flag support (ignore marks/ligatures/base, mark filtering sets)
+- [ ] Extension lookup recursion with robust bounds checking
 
 ---
 
@@ -396,6 +411,15 @@ Full OpenType text shaping for complex scripts. This phase aims to provide HarfB
 
 > **Note**: HarfBuzz support is optional. Compile with `-Dharfbuzz` to enable. When disabled, `shape_best_effort` falls back to basic shaping (char→glyph + kerning).
 
+### Default Shaper Parity (Non-HarfBuzz)
+
+- [ ] Implement ligature substitution in `Font#shape` fallback path
+- [ ] Honor `ShapingOptions#features` in fallback path
+- [ ] Honor script/language selection in fallback path
+- [ ] Apply GSUB/GPOS lookup chains in fallback path
+- [ ] Keep fallback behavior deterministic across fonts (with and without optional tables)
+- [ ] Add script-specific shaping tests (Arabic, Hebrew, Indic, Thai) for fallback behavior
+
 ---
 
 ## Phase 8: Bidirectional Text Support
@@ -460,31 +484,78 @@ Implementation of Unicode Bidirectional Algorithm (UAX #9) for mixed LTR/RTL tex
 
 ---
 
-## API Improvements ✅
+## Phase 9: Completion & Hardening
+
+Close the remaining behavior gaps so the library reaches complete functional coverage, not only table parsing coverage.
+
+### Subsetting Completion
+
+- [ ] Apply `SubsetOptions#include_notdef`
+- [ ] Apply `SubsetOptions#preserve_hints` (retain or strip hinting tables and instructions)
+- [ ] Apply `SubsetOptions#preserve_layout` (retain/subset GSUB/GPOS/GDEF as configured)
+- [ ] Apply `SubsetOptions#preserve_kerning` for `kern` and GPOS pair kerning data
+- [ ] Apply `SubsetOptions#subset_names` (minimal name table mode)
+- [ ] Apply `SubsetOptions#remove_signature` (DSIG handling)
+- [ ] Implement output conversion for subset result (`:ttf`, `:otf`, `:woff`, `:woff2`)
+
+### Layout Completion
+
+- [ ] Implement alignment offsets in output glyph positions
+- [ ] Implement `LayoutOptions#direction` behavior
+- [ ] Apply `line_height` to paragraph y-positioning and total layout height
+- [ ] Implement hyphenation path using `hyphen_char`
+- [ ] Add layout regression tests for all options
+
+### Validation & Robustness Completion
+
+- [ ] Expand validation beyond required-table checks (cross-table consistency and bounds)
+- [ ] Add stricter OpenType layout table validation for malformed offsets/lengths
+- [ ] Ensure optional malformed tables degrade gracefully without crashing high-level APIs
+- [ ] Add corpus-based malformed font tests and fuzzing harness
+
+### Completion Criteria
+
+- [ ] `font.shape` fallback path applies GSUB/GPOS features sufficiently for non-complex Latin typography
+- [ ] `shape_best_effort` behavior is predictable with and without HarfBuzz
+- [ ] All `SubsetOptions` flags are observable in tests
+- [ ] `LayoutOptions` fields all affect output behavior and are covered by tests
+- [ ] Bidi conformance tests are green
+- [ ] No known crashers on malformed optional tables in default API paths
+
+---
+
+## API Improvements (In Progress)
 
 Enhancements to make the library easier to use.
 
-### High-Level API ✅
+### High-Level API (In Progress)
 
 - [x] `Font.open(path)` with format auto-detection (TTF, OTF, WOFF, WOFF2, TTC/OTC)
-- [x] `font.shape(text, features)` for text shaping with kerning and ligatures
+- [ ] `font.shape(text, features)` full feature behavior in default path
 - [x] `font.render(text)` returning positioned glyphs with cumulative positions
 - [x] `font.instance(weight: 700, width: 100)` for variable fonts
-- [x] `font.subset(chars)` with options (hints, features, etc.)
+- [ ] `font.subset(chars)` with full options behavior (hints/layout/kerning/names/signature)
+- [ ] Subset output conversion (`:ttf`, `:otf`, `:woff`, `:woff2`)
 
-### Text Layout ✅
+### Text Layout (In Progress)
 
 - [x] Basic text width calculation with kerning
 - [x] Line breaking support with configurable max width
+- [ ] Alignments (`Left`, `Center`, `Right`, `Justify`) applied to glyph positions
+- [ ] Directional layout option (`LeftToRight`, `RightToLeft`) applied in line ordering
+- [ ] `line_height` applied to paragraph layout output (not just measurement helper)
+- [ ] Hyphenation behavior (`hyphen_char`) in wrap logic
 - [ ] Bi-directional text support (UAX #9)
-- [ ] Text shaping integration (consider HarfBuzz bindings)
+- [ ] Shaping-aware line breaking and layout integration
 
-### Error Handling ✅
+### Error Handling (In Progress)
 
 - [x] Detailed parse error messages with byte offsets
 - [x] Font validation mode (`font.validate`)
-- [x] Graceful handling of malformed fonts
+- [x] Graceful handling of many malformed fonts
 - [x] Warning collection for non-fatal issues
+- [ ] Recover from non-`ParseError` optional-table decode failures (for example `IO::EOFError`)
+- [ ] Normalize exception surface for malformed layout tables
 
 ### Performance
 
@@ -499,18 +570,22 @@ Enhancements to make the library easier to use.
 
 ### Test Coverage
 
-- [ ] Unit tests for all table parsers
-- [ ] Integration tests with real-world fonts
-- [ ] Subsetting round-trip tests
-- [ ] Variable font interpolation tests
-- [ ] Color font rendering tests
+- [x] Unit tests for table parsing primitives and helpers
+- [x] Integration tests with real-world fonts in fixtures
+- [x] Subsetting round-trip tests (core behavior)
+- [x] Variable font interpolation tests
+- [x] Color font table tests
+- [ ] Behavior tests for full GSUB/GPOS application outcomes
+- [ ] Subset option behavior tests (`SubsetOptions` flags + output format)
+- [ ] Malformed-font resilience/fuzz tests for optional tables
+- [ ] Bidi conformance tests (UAX #9 test suites)
 
 ### Test Fonts
 
-- [ ] Include open-source test fonts in fixtures
-- [ ] Cover edge cases (empty glyphs, max values, etc.)
-- [ ] Include variable font test cases
-- [ ] Include color font test cases
+- [x] Include open-source test fonts in fixtures
+- [ ] Cover edge cases (empty glyphs, max values, malformed tables, etc.)
+- [x] Include variable font test cases
+- [x] Include color font test cases
 
 ### Benchmarks
 
@@ -524,7 +599,7 @@ Enhancements to make the library easier to use.
 ## Documentation
 
 - [ ] API documentation for all public methods
-- [ ] Usage examples in README
+- [x] Usage examples in README
 - [ ] Guide: PDF font embedding
 - [ ] Guide: Web font subsetting
 - [ ] Guide: Working with variable fonts
