@@ -1,9 +1,9 @@
 require "../spec_helper"
 
-# Phase 6: Extended Format Support Tests
+# Extended Format Support Tests
 # Tests for BASE, MATH, CFF2, JSTF, and metadata tables
 
-describe "Phase 6: Extended Format Support" do
+describe "Extended Format Support" do
   describe TrueType::Tables::OpenType::BASE do
     describe "BaseCoord" do
       it "creates format 1 coordinate" do
