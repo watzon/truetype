@@ -420,7 +420,7 @@ end
 
 # OpenType layout
 if gsub = parser.gsub
-  gsub.features.each { |f| puts f.tag }
+  gsub.feature_list.features.each { |tag, _feature| puts tag }
 end
 
 # Glyph outlines
