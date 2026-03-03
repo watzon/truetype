@@ -7,6 +7,7 @@
 The library provides a comprehensive foundation for TrueType/OpenType parsing and table access. Table parsing coverage is broad, but **end-to-end behavior is not yet complete** in shaping, layout, subsetting options, bidi, and validation depth.
 
 **Remaining major features** (Phases 7-9):
+
 - Full GSUB/GPOS lookup application in the default shaping path (non-HarfBuzz)
 - Bidirectional text support (UAX #9) for mixed LTR/RTL text
 - Full `SubsetOptions` behavior and subset output format conversion
@@ -15,45 +16,45 @@ The library provides a comprehensive foundation for TrueType/OpenType parsing an
 
 ### What Works Today
 
-| Category              | Features                                                                       | Status |
-| --------------------- | ------------------------------------------------------------------------------ | ------ |
-| **Core Tables**       | `head`, `hhea`, `hmtx`, `maxp`, `cmap`, `name`, `post`, `OS/2`                | Complete |
-| **TrueType Outlines** | `glyf`, `loca` table parsing                                                   | Complete |
-| **Character Mapping** | cmap formats 0, 2, 4, 6, 12, 13, 14                                            | Complete |
-| **Font Metrics**      | Units per em, ascender, descender, cap height, bounding box                   | Complete |
-| **Glyph Metrics**     | Advance widths, glyph IDs, character widths                                    | Complete |
-| **Font Info**         | PostScript name, family name, style flags (bold/italic/monospace)             | Complete |
-| **Subsetting**        | TrueType/CFF glyph subsetting core path                                        | Partial (options/output format pending) |
-| **PDF Support**       | Font descriptor flags, StemV estimation                                        | Complete |
-| **Kerning**           | `kern` table (format 0, 2), GPOS pair-kerning helper                           | Complete |
-| **CFF/OTF**           | CFF table parsing, CharStrings, outline extraction, subsetting                 | Complete |
-| **WOFF/WOFF2 Input**  | Header parsing, decompression, sfnt reconstruction                              | Complete |
-| **Font Collections**  | TTC/OTC parsing, multi-font access                                             | Complete |
-| **Glyph Outlines**    | Contour extraction, SVG path export, bounding boxes                            | Complete |
-| **Vertical Metrics**  | `vhea`, `vmtx`, `VORG` tables, vertical writing support                        | Complete |
-| **OpenType Layout**   | `GDEF`, `GSUB`, `GPOS` parsing and feature registry                             | Parsed (application partial) |
-| **Variable Fonts**    | `fvar`, `gvar`, `avar`, `HVAR`, `VVAR`, `MVAR`, `cvar`, `STAT`                | Complete |
-| **Color Fonts**       | `CPAL`, `COLR` v0/v1, `SVG `, `CBDT`/`CBLC`, `sbix`                            | Complete |
-| **Hinting Tables**    | `cvt `, `fpgm`, `prep`, `gasp`, `hdmx`, `LTSH`, `VDMX`                         | Complete |
-| **Extended Formats**  | CFF2, MATH, BASE, JSTF, DSIG, meta, PCLT, EBLC/EBDT/EBSC                      | Complete |
-| **High-Level API**    | `Font.open`, `font.render`, `font.instance`, `font.subset`, `font.validate`   | Partial (some behavior flags pending) |
-| **Text Layout**       | Measurement and line breaking                                                   | Basic (alignment/direction/line-height behavior pending) |
-| **Validation**        | Structural checks and warnings collection                                       | Basic (deep validation pending) |
+| Category              | Features                                                                    | Status                                                   |
+| --------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Core Tables**       | `head`, `hhea`, `hmtx`, `maxp`, `cmap`, `name`, `post`, `OS/2`              | Complete                                                 |
+| **TrueType Outlines** | `glyf`, `loca` table parsing                                                | Complete                                                 |
+| **Character Mapping** | cmap formats 0, 2, 4, 6, 12, 13, 14                                         | Complete                                                 |
+| **Font Metrics**      | Units per em, ascender, descender, cap height, bounding box                 | Complete                                                 |
+| **Glyph Metrics**     | Advance widths, glyph IDs, character widths                                 | Complete                                                 |
+| **Font Info**         | PostScript name, family name, style flags (bold/italic/monospace)           | Complete                                                 |
+| **Subsetting**        | TrueType/CFF glyph subsetting core path                                     | Partial (options/output format pending)                  |
+| **PDF Support**       | Font descriptor flags, StemV estimation                                     | Complete                                                 |
+| **Kerning**           | `kern` table (format 0, 2), GPOS pair-kerning helper                        | Complete                                                 |
+| **CFF/OTF**           | CFF table parsing, CharStrings, outline extraction, subsetting              | Complete                                                 |
+| **WOFF/WOFF2 Input**  | Header parsing, decompression, sfnt reconstruction                          | Complete                                                 |
+| **Font Collections**  | TTC/OTC parsing, multi-font access                                          | Complete                                                 |
+| **Glyph Outlines**    | Contour extraction, SVG path export, bounding boxes                         | Complete                                                 |
+| **Vertical Metrics**  | `vhea`, `vmtx`, `VORG` tables, vertical writing support                     | Complete                                                 |
+| **OpenType Layout**   | `GDEF`, `GSUB`, `GPOS` parsing and feature registry                         | Parsed (application partial)                             |
+| **Variable Fonts**    | `fvar`, `gvar`, `avar`, `HVAR`, `VVAR`, `MVAR`, `cvar`, `STAT`              | Complete                                                 |
+| **Color Fonts**       | `CPAL`, `COLR` v0/v1, `SVG `, `CBDT`/`CBLC`, `sbix`                         | Complete                                                 |
+| **Hinting Tables**    | `cvt `, `fpgm`, `prep`, `gasp`, `hdmx`, `LTSH`, `VDMX`                      | Complete                                                 |
+| **Extended Formats**  | CFF2, MATH, BASE, JSTF, DSIG, meta, PCLT, EBLC/EBDT/EBSC                    | Complete                                                 |
+| **High-Level API**    | `Font.open`, `font.render`, `font.instance`, `font.subset`, `font.validate` | Partial (some behavior flags pending)                    |
+| **Text Layout**       | Measurement and line breaking                                               | Basic (alignment/direction/line-height behavior pending) |
+| **Validation**        | Structural checks and warnings collection                                   | Basic (deep validation pending)                          |
 
 ### What's NOT Yet Supported
 
-| Category | Feature | Status |
-|----------|---------|--------|
-| **Text Shaping** | Full OpenType shaping (GSUB/GPOS lookup application) | Phase 7 |
-| **Text Shaping** | Complex script shapers (Arabic, Indic, Thai, etc.) | Phase 7 |
-| **Text Shaping** | Parity in non-HarfBuzz fallback shaper | Phase 7 |
-| **Bidi** | Unicode Bidirectional Algorithm (UAX #9) | Phase 8 |
-| **Bidi** | Mixed LTR/RTL text layout | Phase 8 |
-| **Subsetting** | `SubsetOptions` behavior + subset output format conversion | Phase 9 |
-| **Layout** | Full layout option behavior (`align`, `direction`, `line_height`, hyphenation) | Phase 9 |
-| **Validation** | Deep validation beyond structural checks | Phase 9 |
-| **Resilience** | Robust handling of malformed optional layout tables | Phase 9 |
-| **Hinting** | TrueType bytecode interpreter | Optional |
+| Category         | Feature                                                                        | Status   |
+| ---------------- | ------------------------------------------------------------------------------ | -------- |
+| **Text Shaping** | Full OpenType shaping (GSUB/GPOS lookup application)                           | Phase 7  |
+| **Text Shaping** | Complex script shapers (Arabic, Indic, Thai, etc.)                             | Phase 7  |
+| **Text Shaping** | Parity in non-HarfBuzz fallback shaper                                         | Phase 7  |
+| **Bidi**         | Unicode Bidirectional Algorithm (UAX #9)                                       | Phase 8  |
+| **Bidi**         | Mixed LTR/RTL text layout                                                      | Phase 8  |
+| **Subsetting**   | `SubsetOptions` behavior + subset output format conversion                     | Phase 9  |
+| **Layout**       | Full layout option behavior (`align`, `direction`, `line_height`, hyphenation) | Phase 9  |
+| **Validation**   | Deep validation beyond structural checks                                       | Phase 9  |
+| **Resilience**   | Robust handling of malformed optional layout tables                            | Phase 9  |
+| **Hinting**      | TrueType bytecode interpreter                                                  | Optional |
 
 ---
 
@@ -413,12 +414,12 @@ Full OpenType text shaping for complex scripts. This phase aims to provide HarfB
 
 ### Default Shaper Parity (Non-HarfBuzz)
 
-- [ ] Implement ligature substitution in `Font#shape` fallback path
-- [ ] Honor `ShapingOptions#features` in fallback path
-- [ ] Honor script/language selection in fallback path
-- [ ] Apply GSUB/GPOS lookup chains in fallback path
-- [ ] Keep fallback behavior deterministic across fonts (with and without optional tables)
-- [ ] Add script-specific shaping tests (Arabic, Hebrew, Indic, Thai) for fallback behavior
+- [x] Implement ligature substitution in `Font#shape` fallback path
+- [x] Honor `ShapingOptions#features` in fallback path
+- [x] Honor script/language selection in fallback path
+- [x] Apply GSUB/GPOS lookup chains in fallback path
+- [x] Keep fallback behavior deterministic across fonts (with and without optional tables)
+- [x] Add script-specific shaping tests (Arabic, Hebrew, Indic, Thai) for fallback behavior
 
 ---
 

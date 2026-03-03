@@ -9,12 +9,12 @@
 # require "truetype"
 #
 # # Open any font format with auto-detection
-# font = TrueType::Font.open("path/to/font.ttf")  # TTF, OTF, WOFF, WOFF2, TTC/OTC
+# font = TrueType::Font.open("path/to/font.ttf") # TTF, OTF, WOFF, WOFF2, TTC/OTC
 #
 # # Access font information
-# puts font.name           # "DejaVu Sans"
+# puts font.name            # "DejaVu Sans"
 # puts font.postscript_name # "DejaVuSans"
-# puts font.style          # "Regular"
+# puts font.style           # "Regular"
 #
 # # Basic text shaping
 # glyphs = font.shape("Hello!")
@@ -63,7 +63,7 @@ module TrueType
       @x_offset : Int32 = 0,
       @y_offset : Int32 = 0,
       @x_advance : Int32 = 0,
-      @y_advance : Int32 = 0
+      @y_advance : Int32 = 0,
     )
     end
 
@@ -103,7 +103,7 @@ module TrueType
       @features : Array(String) = [] of String,
       @script : String? = nil,
       @language : String? = nil,
-      @direction : Symbol = :ltr
+      @direction : Symbol = :ltr,
     )
     end
 
@@ -153,7 +153,7 @@ module TrueType
       @include_notdef : Bool = true,
       @subset_names : Bool = true,
       @remove_signature : Bool = true,
-      @output_format : Symbol = :ttf
+      @output_format : Symbol = :ttf,
     )
     end
 
@@ -502,50 +502,45 @@ module TrueType
     def shape(text : String, options : ShapingOptions = ShapingOptions.default) : Array(PositionedGlyph)
       return [] of PositionedGlyph if text.empty?
 
-      # Convert characters to glyph IDs
-      chars = text.chars
-      glyph_ids = chars.map { |c| glyph_id(c) }
-      clusters = (0...chars.size).to_a
+      effective_options = options
+      effective_options.script ||= infer_script_tag(text)
 
-      # Apply ligature substitution if enabled and available
-      if options.ligatures? && @parser.has_gsub_feature?("liga")
-        glyph_ids, clusters = apply_ligatures(glyph_ids, clusters)
+      slots = text.chars.map_with_index do |char, index|
+        ShaperSlot.new(glyph_id(char), index, char.ord.to_u32)
       end
 
-      # Build positioned glyphs with kerning
-      result = [] of PositionedGlyph
-      prev_glyph : UInt16? = nil
+      feature_settings = resolve_feature_settings(effective_options)
 
-      glyph_ids.each_with_index do |gid, i|
-        cluster = clusters[i]
-        codepoint = cluster < chars.size ? chars[cluster].ord.to_u32 : 0_u32
+      if gsub_table = safe_gsub
+        lookup_indices = active_gsub_lookup_indices(gsub_table, effective_options, feature_settings)
+        slots = apply_gsub_lookups(slots, lookup_indices, gsub_table) unless lookup_indices.empty?
+      end
 
-        x_offset = 0
-        y_offset = 0
+      initialize_advances!(slots)
 
-        # Apply kerning from previous glyph
-        if options.kerning? && prev_glyph
-          kern = kerning(prev_glyph, gid)
-          x_offset = kern.to_i32
+      gpos_kern_applied = false
+      if gpos_table = safe_gpos
+        lookup_indices = active_gpos_lookup_indices(gpos_table, effective_options, feature_settings)
+        unless lookup_indices.empty?
+          gpos_kern_applied = apply_gpos_lookups!(slots, lookup_indices, gpos_table)
         end
-
-        x_advance = advance_width(gid).to_i32
-        y_advance = 0
-
-        result << PositionedGlyph.new(
-          id: gid,
-          codepoint: codepoint,
-          cluster: cluster,
-          x_offset: x_offset,
-          y_offset: y_offset,
-          x_advance: x_advance,
-          y_advance: y_advance
-        )
-
-        prev_glyph = gid
       end
 
-      result
+      if feature_enabled?(feature_settings, "kern") && !gpos_kern_applied
+        apply_legacy_kerning!(slots)
+      end
+
+      slots.map do |slot|
+        PositionedGlyph.new(
+          id: slot.id,
+          codepoint: slot.codepoint,
+          cluster: slot.cluster,
+          x_offset: slot.x_offset,
+          y_offset: slot.y_offset,
+          x_advance: slot.x_advance,
+          y_advance: slot.y_advance
+        )
+      end
     end
 
     # Shape text and render to positioned glyphs with cumulative positions.
@@ -595,97 +590,97 @@ module TrueType
     end
 
     {% if flag?(:harfbuzz) %}
-    # Shape text using HarfBuzz for full OpenType support.
-    #
-    # This method requires the -Dharfbuzz compile flag and HarfBuzz library.
-    # It provides full support for:
-    # - Complex scripts (Arabic, Devanagari, Thai, etc.)
-    # - OpenType feature application (ligatures, kerning, etc.)
-    # - Bidirectional text
-    # - Variable font axis settings
-    #
-    # ```
-    # # Basic HarfBuzz shaping
-    # glyphs = font.shape_advanced("مرحبا بالعالم")
-    #
-    # # With specific features
-    # options = HarfBuzz::ShapingOptions.new(
-    #   features: [HarfBuzz::Features.smcp, HarfBuzz::Features.liga]
-    # )
-    # glyphs = font.shape_advanced("Hello", options)
-    #
-    # # For Arabic text (auto-detected, but can be explicit)
-    # glyphs = font.shape_advanced("مرحبا", HarfBuzz::ShapingOptions.arabic)
-    # ```
-    def shape_advanced(text : String, options : HarfBuzz::ShapingOptions = HarfBuzz::ShapingOptions.new) : Array(PositionedGlyph)
-      result = HarfBuzz::Shaper.shape(self, text, options)
+      # Shape text using HarfBuzz for full OpenType support.
+      #
+      # This method requires the -Dharfbuzz compile flag and HarfBuzz library.
+      # It provides full support for:
+      # - Complex scripts (Arabic, Devanagari, Thai, etc.)
+      # - OpenType feature application (ligatures, kerning, etc.)
+      # - Bidirectional text
+      # - Variable font axis settings
+      #
+      # ```
+      # # Basic HarfBuzz shaping
+      # glyphs = font.shape_advanced("مرحبا بالعالم")
+      #
+      # # With specific features
+      # options = HarfBuzz::ShapingOptions.new(
+      #   features: [HarfBuzz::Features.smcp, HarfBuzz::Features.liga]
+      # )
+      # glyphs = font.shape_advanced("Hello", options)
+      #
+      # # For Arabic text (auto-detected, but can be explicit)
+      # glyphs = font.shape_advanced("مرحبا", HarfBuzz::ShapingOptions.arabic)
+      # ```
+      def shape_advanced(text : String, options : HarfBuzz::ShapingOptions = HarfBuzz::ShapingOptions.new) : Array(PositionedGlyph)
+        result = HarfBuzz::Shaper.shape(self, text, options)
 
-      # Convert HarfBuzz shaped glyphs to our PositionedGlyph format
-      result.glyphs.map do |g|
-        PositionedGlyph.new(
-          id: g.id.to_u16,
-          codepoint: 0_u32,  # HarfBuzz doesn't preserve original codepoint
-          cluster: g.cluster.to_i32,
-          x_offset: g.x_offset,
-          y_offset: g.y_offset,
-          x_advance: g.x_advance,
-          y_advance: g.y_advance
-        )
-      end
-    end
-
-    # Shape text using HarfBuzz and return positioned glyphs with cumulative positions.
-    #
-    # Unlike `shape_advanced`, this returns absolute positions suitable for rendering.
-    def render_advanced(text : String, options : HarfBuzz::ShapingOptions = HarfBuzz::ShapingOptions.new) : Array(PositionedGlyph)
-      result = HarfBuzz::Shaper.shape(self, text, options)
-
-      # Convert to absolute positions
-      glyphs = [] of PositionedGlyph
-      current_x = 0
-      current_y = 0
-
-      result.glyphs.each do |g|
-        x_pos = current_x + g.x_offset
-        y_pos = current_y + g.y_offset
-
-        glyphs << PositionedGlyph.new(
-          id: g.id.to_u16,
-          codepoint: 0_u32,
-          cluster: g.cluster.to_i32,
-          x_offset: x_pos,
-          y_offset: y_pos,
-          x_advance: g.x_advance,
-          y_advance: g.y_advance
-        )
-
-        current_x += g.x_advance
-        current_y += g.y_advance
+        # Convert HarfBuzz shaped glyphs to our PositionedGlyph format
+        result.glyphs.map do |g|
+          PositionedGlyph.new(
+            id: g.id.to_u16,
+            codepoint: 0_u32, # HarfBuzz doesn't preserve original codepoint
+            cluster: g.cluster.to_i32,
+            x_offset: g.x_offset,
+            y_offset: g.y_offset,
+            x_advance: g.x_advance,
+            y_advance: g.y_advance
+          )
+        end
       end
 
-      glyphs
-    end
+      # Shape text using HarfBuzz and return positioned glyphs with cumulative positions.
+      #
+      # Unlike `shape_advanced`, this returns absolute positions suitable for rendering.
+      def render_advanced(text : String, options : HarfBuzz::ShapingOptions = HarfBuzz::ShapingOptions.new) : Array(PositionedGlyph)
+        result = HarfBuzz::Shaper.shape(self, text, options)
 
-    # Get the HarfBuzz shaping result directly (for advanced use cases).
-    #
-    # This returns the full HarfBuzz::ShapingResult which includes
-    # additional information like total width/height and direction.
-    def shape_harfbuzz(text : String, options : HarfBuzz::ShapingOptions = HarfBuzz::ShapingOptions.new) : HarfBuzz::ShapingResult
-      HarfBuzz::Shaper.shape(self, text, options)
-    end
+        # Convert to absolute positions
+        glyphs = [] of PositionedGlyph
+        current_x = 0
+        current_y = 0
 
-    # Create a reusable HarfBuzz font for efficient repeated shaping.
-    #
-    # Use this when shaping many strings with the same font:
-    # ```
-    # hb_font = font.harfbuzz_font
-    # texts.each do |text|
-    #   result = HarfBuzz::Shaper.shape_with_font(hb_font, text)
-    # end
-    # ```
-    def harfbuzz_font : HarfBuzz::Font
-      HarfBuzz::Font.new(data)
-    end
+        result.glyphs.each do |g|
+          x_pos = current_x + g.x_offset
+          y_pos = current_y + g.y_offset
+
+          glyphs << PositionedGlyph.new(
+            id: g.id.to_u16,
+            codepoint: 0_u32,
+            cluster: g.cluster.to_i32,
+            x_offset: x_pos,
+            y_offset: y_pos,
+            x_advance: g.x_advance,
+            y_advance: g.y_advance
+          )
+
+          current_x += g.x_advance
+          current_y += g.y_advance
+        end
+
+        glyphs
+      end
+
+      # Get the HarfBuzz shaping result directly (for advanced use cases).
+      #
+      # This returns the full HarfBuzz::ShapingResult which includes
+      # additional information like total width/height and direction.
+      def shape_harfbuzz(text : String, options : HarfBuzz::ShapingOptions = HarfBuzz::ShapingOptions.new) : HarfBuzz::ShapingResult
+        HarfBuzz::Shaper.shape(self, text, options)
+      end
+
+      # Create a reusable HarfBuzz font for efficient repeated shaping.
+      #
+      # Use this when shaping many strings with the same font:
+      # ```
+      # hb_font = font.harfbuzz_font
+      # texts.each do |text|
+      #   result = HarfBuzz::Shaper.shape_with_font(hb_font, text)
+      # end
+      # ```
+      def harfbuzz_font : HarfBuzz::Font
+        HarfBuzz::Font.new(data)
+      end
     {% end %}
 
     # Shape text with best effort - uses HarfBuzz if available, falls back to basic shaping.
@@ -904,24 +899,957 @@ module TrueType
     end
 
     # ===== Private Helpers =====
+    private GSUB_LOOKUP_RECURSION_LIMIT = 8
+    private GPOS_LOOKUP_RECURSION_LIMIT = 8
 
-    # Basic ligature substitution (supports common ligatures)
-    private def apply_ligatures(glyph_ids : Array(UInt16), clusters : Array(Int32)) : {Array(UInt16), Array(Int32)}
-      return {glyph_ids, clusters} unless gsub = @parser.gsub
+    private GPOS_IGNORE_BASE_GLYPHS     = 0x0002_u16
+    private GPOS_IGNORE_LIGATURES       = 0x0004_u16
+    private GPOS_IGNORE_MARKS           = 0x0008_u16
+    private GPOS_USE_MARK_FILTERING_SET = 0x0010_u16
+    private MARK_ATTACH_TYPE_MASK       = 0xFF00_u16
 
-      # Get ligature lookups
-      lookups = gsub.lookups_for_feature("liga")
-      return {glyph_ids, clusters} if lookups.empty?
+    private alias IgnorePredicate = Proc(UInt16, Bool)
 
-      # Apply each lookup
-      # This is a simplified implementation - full implementation would
-      # need to handle lookup types 4 (ligature) properly
-      result_glyphs = glyph_ids.dup
-      result_clusters = clusters.dup
+    private struct ShaperSlot
+      property id : UInt16
+      property cluster : Int32
+      property codepoint : UInt32
+      property x_offset : Int32
+      property y_offset : Int32
+      property x_advance : Int32
+      property y_advance : Int32
 
-      # For now, return original - full ligature implementation is complex
-      # and requires proper GSUB lookup application
-      {result_glyphs, result_clusters}
+      def initialize(@id : UInt16, @cluster : Int32, @codepoint : UInt32)
+        @x_offset = 0
+        @y_offset = 0
+        @x_advance = 0
+        @y_advance = 0
+      end
+    end
+
+    private def resolve_feature_settings(options : ShapingOptions) : Hash(String, Bool)
+      settings = Hash(String, Bool).new
+      settings["liga"] = options.ligatures?
+      settings["clig"] = options.ligatures?
+      settings["kern"] = options.kerning?
+      settings["calt"] = options.contextual_alternates?
+      settings["ccmp"] = true
+      settings["mark"] = true
+      settings["mkmk"] = true
+
+      if script = options.script
+        script_default_features(script).each do |feature_tag|
+          settings[feature_tag] = true
+        end
+      end
+
+      options.features.each do |feature|
+        next unless parsed = parse_feature_setting(feature)
+        tag, enabled = parsed
+        settings[tag] = enabled
+      end
+
+      settings
+    end
+
+    private def script_default_features(script_tag : String) : Array(String)
+      case normalize_script_tag(script_tag)
+      when "arab"
+        ["ccmp", "init", "medi", "fina", "rlig", "liga"]
+      when "hebr"
+        ["ccmp", "hlig", "liga"]
+      when "thai"
+        ["ccmp"]
+      when "deva"
+        ["ccmp"]
+      else
+        [] of String
+      end
+    end
+
+    private def infer_script_tag(text : String) : String?
+      text.each_char do |char|
+        codepoint = char.ord
+
+        case codepoint
+        when 0x0590..0x05FF
+          return "hebr"
+        when 0x0600..0x06FF, 0x0750..0x077F, 0x08A0..0x08FF
+          return "arab"
+        when 0x0900..0x097F
+          return "deva"
+        when 0x0E00..0x0E7F
+          return "thai"
+        when 0x0041..0x024F
+          return "latn"
+        end
+      end
+
+      nil
+    end
+
+    private def parse_feature_setting(feature : String) : Tuple(String, Bool)?
+      raw = feature.strip
+      return nil if raw.empty?
+
+      enabled = true
+      tag = raw
+
+      if raw.starts_with?('-')
+        enabled = false
+        tag = raw[1..]
+      elsif raw.starts_with?('+')
+        tag = raw[1..]
+      elsif (eq = raw.index('=')) && eq > 0
+        tag = raw[0, eq]
+        enabled = raw[(eq + 1)..].strip.to_i? != 0
+      end
+
+      normalized_tag = normalize_feature_tag(tag)
+      return nil if normalized_tag.empty?
+
+      {normalized_tag, enabled}
+    end
+
+    private def feature_enabled?(feature_settings : Hash(String, Bool), tag : String) : Bool
+      feature_settings[normalize_feature_tag(tag)]? || false
+    end
+
+    private def normalize_feature_tag(tag : String) : String
+      normalized = tag.strip
+      return "" if normalized.empty?
+      normalized = normalized[0, 4] if normalized.size > 4
+      normalized.downcase
+    end
+
+    private def normalize_script_tag(tag : String) : String
+      normalized = tag.strip
+      return "" if normalized.empty?
+      normalized = normalized[0, 4] if normalized.size > 4
+      normalized.downcase
+    end
+
+    private def normalize_language_tag(tag : String) : String
+      normalized = tag.strip
+      return "" if normalized.empty?
+      normalized = normalized[0, 4] if normalized.size > 4
+      normalized.upcase
+    end
+
+    private def safe_gsub : Tables::OpenType::GSUB?
+      @parser.gsub
+    rescue
+      nil
+    end
+
+    private def safe_gpos : Tables::OpenType::GPOS?
+      @parser.gpos
+    rescue
+      nil
+    end
+
+    private def safe_gdef : Tables::OpenType::GDEF?
+      @parser.gdef
+    rescue
+      nil
+    end
+
+    private def active_gsub_lookup_indices(gsub : Tables::OpenType::GSUB, options : ShapingOptions, feature_settings : Hash(String, Bool)) : Array(Int32)
+      active_lookup_indices(gsub.feature_list, gsub.script_list, options, feature_settings)
+    end
+
+    private def active_gpos_lookup_indices(gpos : Tables::OpenType::GPOS, options : ShapingOptions, feature_settings : Hash(String, Bool)) : Array(Int32)
+      active_lookup_indices(gpos.feature_list, gpos.script_list, options, feature_settings)
+    end
+
+    private def active_lookup_indices(feature_list : Tables::OpenType::FeatureList, script_list : Tables::OpenType::ScriptList, options : ShapingOptions, feature_settings : Hash(String, Bool)) : Array(Int32)
+      allowed_feature_indices, required_feature_index = feature_scope_for(script_list, options.script, options.language)
+      indices = [] of Int32
+      seen = Set(Int32).new
+
+      feature_list.features.each_with_index do |(tag, table), index|
+        if allowed = allowed_feature_indices
+          next unless allowed.includes?(index) || (required_feature_index && index == required_feature_index)
+        end
+
+        enabled = if required_feature_index && index == required_feature_index
+                    true
+                  else
+                    feature_enabled?(feature_settings, tag)
+                  end
+        next unless enabled
+
+        table.lookup_indices.each do |lookup_index|
+          li = lookup_index.to_i
+          next if seen.includes?(li)
+          seen << li
+          indices << li
+        end
+      end
+
+      indices
+    end
+
+    private def feature_scope_for(script_list : Tables::OpenType::ScriptList, script_tag : String?, language_tag : String?) : {Set(Int32)?, Int32?}
+      script_table = select_script_table(script_list, script_tag)
+      return {nil, nil} unless script_table
+
+      lang_sys = select_lang_sys(script_table, language_tag)
+      return {nil, nil} unless lang_sys
+
+      allowed = Set(Int32).new
+      lang_sys.feature_indices.each { |index| allowed << index.to_i }
+
+      required = lang_sys.has_required_feature? ? lang_sys.required_feature_index.to_i : nil
+      {allowed, required}
+    end
+
+    private def select_script_table(script_list : Tables::OpenType::ScriptList, script_tag : String?) : Tables::OpenType::ScriptTable?
+      if tag = script_tag
+        normalized = normalize_script_tag(tag)
+        unless normalized.empty?
+          script_list.scripts.each do |script_record_tag, script_table|
+            return script_table if normalize_script_tag(script_record_tag) == normalized
+          end
+        end
+      end
+
+      script_list.default_script || script_list.scripts.values.first?
+    end
+
+    private def select_lang_sys(script_table : Tables::OpenType::ScriptTable, language_tag : String?) : Tables::OpenType::LangSys?
+      if tag = language_tag
+        normalized = normalize_language_tag(tag)
+        unless normalized.empty?
+          script_table.lang_sys_tables.each do |lang_record_tag, lang_sys|
+            return lang_sys if normalize_language_tag(lang_record_tag) == normalized
+          end
+        end
+      end
+
+      script_table.default_lang_sys || script_table.lang_sys_tables.values.first?
+    end
+
+    private def initialize_advances!(slots : Array(ShaperSlot)) : Nil
+      slots.each_with_index do |slot, index|
+        slot.x_offset = 0
+        slot.y_offset = 0
+        slot.x_advance = advance_width(slot.id).to_i32
+        slot.y_advance = 0
+        slots[index] = slot
+      end
+    end
+
+    private def apply_legacy_kerning!(slots : Array(ShaperSlot)) : Nil
+      return unless kern_table = @parser.kern
+
+      prev_glyph : UInt16? = nil
+      slots.each_with_index do |slot, index|
+        if previous = prev_glyph
+          kern = kern_table.kern(previous, slot.id).to_i32
+          if kern != 0
+            slot.x_offset += kern
+            slots[index] = slot
+          end
+        end
+        prev_glyph = slot.id
+      end
+    end
+
+    private def apply_gsub_lookups(slots : Array(ShaperSlot), lookup_indices : Array(Int32), gsub : Tables::OpenType::GSUB) : Array(ShaperSlot)
+      result = slots
+      lookup_indices.each do |lookup_index|
+        lookup = gsub.lookup(lookup_index)
+        next unless lookup
+        result = apply_gsub_lookup(result, lookup, gsub)
+      end
+      result
+    end
+
+    private def apply_gsub_lookup(slots : Array(ShaperSlot), lookup : Tables::OpenType::GSUBLookup, gsub : Tables::OpenType::GSUB, target_index : Int32? = nil, depth : Int32 = 0) : Array(ShaperSlot)
+      return slots if depth > GSUB_LOOKUP_RECURSION_LIMIT
+
+      if index = target_index
+        return slots if index < 0 || index >= slots.size
+
+        lookup.subtables.each do |subtable|
+          applied, updated, _advance = apply_gsub_subtable_at_index(slots, subtable, lookup, gsub, index, depth)
+          return updated if applied
+        end
+        return slots
+      end
+
+      result = slots
+      i = 0
+      while i < result.size
+        applied = false
+
+        lookup.subtables.each do |subtable|
+          changed, updated, advance = apply_gsub_subtable_at_index(result, subtable, lookup, gsub, i, depth)
+          next unless changed
+
+          result = updated
+          i += (advance > 0 ? advance : 1)
+          applied = true
+          break
+        end
+
+        i += 1 unless applied
+      end
+
+      result
+    end
+
+    private def apply_gsub_subtable_at_index(slots : Array(ShaperSlot), subtable : Tables::OpenType::GSUBSubtable, lookup : Tables::OpenType::GSUBLookup, gsub : Tables::OpenType::GSUB, index : Int32, depth : Int32) : {Bool, Array(ShaperSlot), Int32}
+      return {false, slots, 1} if index < 0 || index >= slots.size
+
+      slot = slots[index]
+      ignore = glyph_ignored_for_gsub_lookup?(lookup, slot.id)
+
+      case subtable
+      when Tables::OpenType::SingleSubstFormat1, Tables::OpenType::SingleSubstFormat2
+        return {false, slots, 1} if ignore
+        if substitute = subtable.substitute(slot.id)
+          slot.id = substitute
+          slots[index] = slot
+          return {true, slots, 1}
+        end
+      when Tables::OpenType::MultipleSubst
+        return {false, slots, 1} if ignore
+        if sequence = subtable.substitute(slot.id)
+          return {false, slots, 1} if sequence.empty?
+
+          replacement = sequence.map_with_index do |glyph_id, replacement_index|
+            codepoint = replacement_index.zero? ? slot.codepoint : 0_u32
+            ShaperSlot.new(glyph_id, slot.cluster, codepoint)
+          end
+
+          updated = replace_slots(slots, index, 1, replacement)
+          return {true, updated, replacement.size}
+        end
+      when Tables::OpenType::AlternateSubst
+        return {false, slots, 1} if ignore
+        if alternates = subtable.alternates(slot.id)
+          if alternate = alternates.first?
+            slot.id = alternate
+            slots[index] = slot
+            return {true, slots, 1}
+          end
+        end
+      when Tables::OpenType::LigatureSubst
+        return {false, slots, 1} if ignore
+        if ligatures = subtable.ligatures_for(slot.id)
+          best_entry : Tables::OpenType::LigatureEntry? = nil
+          best_positions : Array(Int32)? = nil
+
+          ligatures.each do |entry|
+            positions = match_ligature_component_positions(slots, index, entry.component_glyphs, lookup)
+            next unless positions
+
+            if current_best = best_positions
+              next unless positions.size > current_best.size
+            end
+
+            best_entry = entry
+            best_positions = positions
+          end
+
+          if entry = best_entry
+            positions = best_positions.not_nil!
+            ligature_slot = ShaperSlot.new(entry.ligature_glyph, slot.cluster, 0_u32)
+            updated = replace_slots(slots, index, positions.size, [ligature_slot])
+            return {true, updated, 1}
+          end
+        end
+      when Tables::OpenType::ContextSubstFormat1
+        ignored = ->(gid : UInt16) { glyph_ignored_for_gsub_lookup?(lookup, gid) }
+        if rules = subtable.rules_for(slot.id)
+          rules.each do |rule|
+            positions = match_glyph_sequence_positions(slots, index, rule.glyph_sequence, ignored)
+            next unless positions
+
+            updated = apply_gsub_lookup_records(slots, positions, rule.lookup_records, gsub, depth + 1)
+            return {true, updated, 1}
+          end
+        end
+      when Tables::OpenType::ContextSubstFormat2
+        ignored = ->(gid : UInt16) { glyph_ignored_for_gsub_lookup?(lookup, gid) }
+        if rules = subtable.rules_for(slot.id)
+          rules.each do |rule|
+            positions = match_class_sequence_positions(slots, index, subtable.class_def, rule.class_sequence, ignored)
+            next unless positions
+
+            updated = apply_gsub_lookup_records(slots, positions, rule.lookup_records, gsub, depth + 1)
+            return {true, updated, 1}
+          end
+        end
+      when Tables::OpenType::ContextSubstFormat3
+        ignored = ->(gid : UInt16) { glyph_ignored_for_gsub_lookup?(lookup, gid) }
+        if positions = match_coverage_sequence_positions(slots, index, subtable.coverages, ignored)
+          updated = apply_gsub_lookup_records(slots, positions, subtable.lookup_records, gsub, depth + 1)
+          return {true, updated, 1}
+        end
+      when Tables::OpenType::ChainedContextSubstFormat1
+        ignored = ->(gid : UInt16) { glyph_ignored_for_gsub_lookup?(lookup, gid) }
+        if rules = subtable.rules_for(slot.id)
+          rules.each do |rule|
+            positions = match_chained_glyph_rule_positions(slots, index, rule, ignored)
+            next unless positions
+
+            updated = apply_gsub_lookup_records(slots, positions, rule.lookup_records, gsub, depth + 1)
+            return {true, updated, 1}
+          end
+        end
+      when Tables::OpenType::ChainedContextSubstFormat2
+        ignored = ->(gid : UInt16) { glyph_ignored_for_gsub_lookup?(lookup, gid) }
+        if rules = subtable.rules_for(slot.id)
+          rules.each do |rule|
+            positions = match_chained_class_rule_positions(
+              slots,
+              index,
+              rule,
+              subtable.backtrack_class_def,
+              subtable.input_class_def,
+              subtable.lookahead_class_def,
+              ignored
+            )
+            next unless positions
+
+            updated = apply_gsub_lookup_records(slots, positions, rule.lookup_records, gsub, depth + 1)
+            return {true, updated, 1}
+          end
+        end
+      when Tables::OpenType::ChainedContextSubstFormat3
+        ignored = ->(gid : UInt16) { glyph_ignored_for_gsub_lookup?(lookup, gid) }
+        if positions = match_chained_coverage_positions(
+             slots,
+             index,
+             subtable.backtrack_coverages,
+             subtable.input_coverages,
+             subtable.lookahead_coverages,
+             ignored
+           )
+          updated = apply_gsub_lookup_records(slots, positions, subtable.lookup_records, gsub, depth + 1)
+          return {true, updated, 1}
+        end
+      when Tables::OpenType::ReverseChainSubst
+        ignored = ->(gid : UInt16) { glyph_ignored_for_gsub_lookup?(lookup, gid) }
+        return {false, slots, 1} if ignored.call(slot.id)
+
+        if reverse_chaining_match?(slots, index, subtable, ignored)
+          if substitute = subtable.substitute(slot.id)
+            slot.id = substitute
+            slots[index] = slot
+            return {true, slots, 1}
+          end
+        end
+      end
+
+      {false, slots, 1}
+    end
+
+    private def apply_gsub_lookup_records(slots : Array(ShaperSlot), positions : Array(Int32), records : Array(Tables::OpenType::SequenceLookupRecord), gsub : Tables::OpenType::GSUB, depth : Int32) : Array(ShaperSlot)
+      result = slots
+      position_map = positions.dup
+
+      records.each do |record|
+        sequence_index = record.sequence_index.to_i
+        target_index = position_map[sequence_index]?
+        next unless target_index
+
+        nested_lookup = gsub.lookup(record.lookup_index.to_i)
+        next unless nested_lookup
+
+        before_size = result.size
+        result = apply_gsub_lookup(result, nested_lookup, gsub, target_index, depth)
+        size_delta = result.size - before_size
+
+        if size_delta != 0
+          ((sequence_index + 1)...position_map.size).each do |i|
+            position_map[i] += size_delta
+          end
+        end
+      end
+
+      result
+    end
+
+    private def apply_gpos_lookups!(slots : Array(ShaperSlot), lookup_indices : Array(Int32), gpos : Tables::OpenType::GPOS) : Bool
+      kern_applied = false
+
+      lookup_indices.each do |lookup_index|
+        lookup = gpos.lookup(lookup_index)
+        next unless lookup
+
+        changed = apply_gpos_lookup!(slots, lookup, gpos)
+        if changed && lookup.lookup_type.pair_adjustment?
+          kern_applied = true
+        end
+      end
+
+      kern_applied
+    end
+
+    private def apply_gpos_lookup!(slots : Array(ShaperSlot), lookup : Tables::OpenType::GPOSLookup, gpos : Tables::OpenType::GPOS, target_index : Int32? = nil, depth : Int32 = 0) : Bool
+      return false if depth > GPOS_LOOKUP_RECURSION_LIMIT
+
+      if index = target_index
+        return false if index < 0 || index >= slots.size
+        lookup.subtables.each do |subtable|
+          return true if apply_gpos_subtable_at_index!(slots, subtable, lookup, gpos, index, depth)
+        end
+        return false
+      end
+
+      changed = false
+      i = 0
+      while i < slots.size
+        lookup.subtables.each do |subtable|
+          subtable_changed = apply_gpos_subtable_at_index!(slots, subtable, lookup, gpos, i, depth)
+          next unless subtable_changed
+
+          changed = true
+          break
+        end
+        i += 1
+      end
+
+      changed
+    end
+
+    private def apply_gpos_subtable_at_index!(slots : Array(ShaperSlot), subtable : Tables::OpenType::GPOSSubtable, lookup : Tables::OpenType::GPOSLookup, gpos : Tables::OpenType::GPOS, index : Int32, depth : Int32) : Bool
+      return false if index < 0 || index >= slots.size
+
+      slot = slots[index]
+      ignored = ->(gid : UInt16) { glyph_ignored_for_gpos_lookup?(lookup, gid) }
+      return false if ignored.call(slot.id)
+
+      case subtable
+      when Tables::OpenType::SinglePosFormat1, Tables::OpenType::SinglePosFormat2
+        if value = subtable.adjustment(slot.id)
+          apply_value_record!(slots, index, value)
+          return true
+        end
+      when Tables::OpenType::PairPosFormat1, Tables::OpenType::PairPosFormat2
+        second_index = next_relevant_index(slots, index + 1, ignored)
+        return false unless second_index
+
+        first = slots[index].id
+        second = slots[second_index].id
+        if adjustment = subtable.adjustment(first, second)
+          apply_value_record!(slots, index, adjustment[0])
+          apply_value_record!(slots, second_index, adjustment[1])
+          return true
+        end
+      when Tables::OpenType::CursivePos
+        previous_index = prev_relevant_index(slots, index - 1, ignored)
+        return false unless previous_index
+
+        prev_record = subtable.entry_exit(slots[previous_index].id)
+        current_record = subtable.entry_exit(slot.id)
+        return false unless prev_record && current_record
+
+        prev_exit = prev_record.exit_anchor
+        current_entry = current_record.entry_anchor
+        return false unless prev_exit && current_entry
+
+        slot.x_offset += prev_exit.x.to_i32 - current_entry.x.to_i32
+        slot.y_offset += prev_exit.y.to_i32 - current_entry.y.to_i32
+        slots[index] = slot
+        return true
+      when Tables::OpenType::MarkBasePos
+        base_index = find_mark_base_index(slots, index, subtable, ignored)
+        return false unless base_index
+
+        if attachment = subtable.attachment(slot.id, slots[base_index].id)
+          mark_anchor, base_anchor = attachment
+          slot.x_offset += base_anchor.x.to_i32 - mark_anchor.x.to_i32
+          slot.y_offset += base_anchor.y.to_i32 - mark_anchor.y.to_i32
+          slots[index] = slot
+          return true
+        end
+      when Tables::OpenType::MarkMarkPos
+        if apply_mark_to_mark!(slots, index, subtable, ignored)
+          return true
+        end
+      when Tables::OpenType::ContextPosFormat1
+        if rules = subtable.rules_for(slot.id)
+          rules.each do |rule|
+            positions = match_glyph_sequence_positions(slots, index, rule.glyph_sequence, ignored)
+            next unless positions
+
+            apply_gpos_lookup_records!(slots, positions, rule.lookup_records, gpos, depth + 1)
+            return true
+          end
+        end
+      when Tables::OpenType::ContextPosFormat2
+        if rules = subtable.rules_for(slot.id)
+          rules.each do |rule|
+            positions = match_class_sequence_positions(slots, index, subtable.class_def, rule.class_sequence, ignored)
+            next unless positions
+
+            apply_gpos_lookup_records!(slots, positions, rule.lookup_records, gpos, depth + 1)
+            return true
+          end
+        end
+      when Tables::OpenType::ContextPosFormat3
+        if positions = match_coverage_sequence_positions(slots, index, subtable.coverages, ignored)
+          apply_gpos_lookup_records!(slots, positions, subtable.lookup_records, gpos, depth + 1)
+          return true
+        end
+      when Tables::OpenType::ChainedContextPosFormat1
+        if rules = subtable.rules_for(slot.id)
+          rules.each do |rule|
+            positions = match_chained_glyph_rule_positions(slots, index, rule, ignored)
+            next unless positions
+
+            apply_gpos_lookup_records!(slots, positions, rule.lookup_records, gpos, depth + 1)
+            return true
+          end
+        end
+      when Tables::OpenType::ChainedContextPosFormat2
+        if rules = subtable.rules_for(slot.id)
+          rules.each do |rule|
+            positions = match_chained_class_rule_positions(
+              slots,
+              index,
+              rule,
+              subtable.backtrack_class_def,
+              subtable.input_class_def,
+              subtable.lookahead_class_def,
+              ignored
+            )
+            next unless positions
+
+            apply_gpos_lookup_records!(slots, positions, rule.lookup_records, gpos, depth + 1)
+            return true
+          end
+        end
+      when Tables::OpenType::ChainedContextPosFormat3
+        if positions = match_chained_coverage_positions(
+             slots,
+             index,
+             subtable.backtrack_coverages,
+             subtable.input_coverages,
+             subtable.lookahead_coverages,
+             ignored
+           )
+          apply_gpos_lookup_records!(slots, positions, subtable.lookup_records, gpos, depth + 1)
+          return true
+        end
+      end
+
+      false
+    end
+
+    private def apply_gpos_lookup_records!(slots : Array(ShaperSlot), positions : Array(Int32), records : Array(Tables::OpenType::SequenceLookupRecord), gpos : Tables::OpenType::GPOS, depth : Int32) : Nil
+      records.each do |record|
+        sequence_index = record.sequence_index.to_i
+        target_index = positions[sequence_index]?
+        next unless target_index
+
+        lookup = gpos.lookup(record.lookup_index.to_i)
+        next unless lookup
+
+        apply_gpos_lookup!(slots, lookup, gpos, target_index, depth)
+      end
+    end
+
+    private def apply_mark_to_mark!(slots : Array(ShaperSlot), index : Int32, subtable : Tables::OpenType::MarkMarkPos, ignored : IgnorePredicate) : Bool
+      mark1_glyph = slots[index].id
+      mark1_idx = subtable.mark1_coverage.coverage_index(mark1_glyph)
+      return false unless mark1_idx
+
+      mark1_record = subtable.mark1_records[mark1_idx]?
+      return false unless mark1_record
+
+      search_index = index - 1
+      while mark2_index = prev_relevant_index(slots, search_index, ignored)
+        mark2_glyph = slots[mark2_index].id
+        mark2_cov_idx = subtable.mark2_coverage.coverage_index(mark2_glyph)
+        if mark2_cov_idx
+          mark2_record = subtable.mark2_records[mark2_cov_idx]?
+          if mark2_record
+            base_anchor = mark2_record.base_anchors[mark1_record.mark_class]?
+            if base_anchor
+              slot = slots[index]
+              slot.x_offset += base_anchor.x.to_i32 - mark1_record.mark_anchor.x.to_i32
+              slot.y_offset += base_anchor.y.to_i32 - mark1_record.mark_anchor.y.to_i32
+              slots[index] = slot
+              return true
+            end
+          end
+        end
+
+        search_index = mark2_index - 1
+      end
+
+      false
+    end
+
+    private def find_mark_base_index(slots : Array(ShaperSlot), mark_index : Int32, subtable : Tables::OpenType::MarkBasePos, ignored : IgnorePredicate) : Int32?
+      search_index = mark_index - 1
+      while base_index = prev_relevant_index(slots, search_index, ignored)
+        return base_index if subtable.base_coverage.covers?(slots[base_index].id)
+        search_index = base_index - 1
+      end
+      nil
+    end
+
+    private def apply_value_record!(slots : Array(ShaperSlot), index : Int32, value : Tables::OpenType::ValueRecord) : Nil
+      slot = slots[index]
+      slot.x_offset += value.x_placement.to_i32
+      slot.y_offset += value.y_placement.to_i32
+      slot.x_advance += value.x_advance.to_i32
+      slot.y_advance += value.y_advance.to_i32
+      slots[index] = slot
+    end
+
+    private def match_ligature_component_positions(slots : Array(ShaperSlot), start_index : Int32, components : Array(UInt16), lookup : Tables::OpenType::GSUBLookup) : Array(Int32)?
+      ignored = ->(gid : UInt16) { glyph_ignored_for_gsub_lookup?(lookup, gid) }
+      return nil if ignored.call(slots[start_index].id)
+
+      positions = [start_index]
+      current = start_index
+
+      components.each do |expected_glyph|
+        next_index = next_relevant_index(slots, current + 1, ignored)
+        return nil unless next_index
+        return nil unless slots[next_index].id == expected_glyph
+
+        positions << next_index
+        current = next_index
+      end
+
+      (1...positions.size).each do |i|
+        return nil if positions[i] != positions[i - 1] + 1
+      end
+
+      positions
+    end
+
+    private def match_glyph_sequence_positions(slots : Array(ShaperSlot), start_index : Int32, glyph_sequence : Array(UInt16), ignored : IgnorePredicate) : Array(Int32)?
+      return nil if start_index < 0 || start_index >= slots.size
+      return nil if ignored.call(slots[start_index].id)
+
+      positions = [start_index]
+      current = start_index
+
+      glyph_sequence.each do |expected_glyph|
+        next_index = next_relevant_index(slots, current + 1, ignored)
+        return nil unless next_index
+        return nil unless slots[next_index].id == expected_glyph
+
+        positions << next_index
+        current = next_index
+      end
+
+      positions
+    end
+
+    private def match_class_sequence_positions(slots : Array(ShaperSlot), start_index : Int32, class_def : Tables::OpenType::ClassDef, class_sequence : Array(UInt16), ignored : IgnorePredicate) : Array(Int32)?
+      return nil if start_index < 0 || start_index >= slots.size
+      return nil if ignored.call(slots[start_index].id)
+
+      positions = [start_index]
+      current = start_index
+
+      class_sequence.each do |expected_class|
+        next_index = next_relevant_index(slots, current + 1, ignored)
+        return nil unless next_index
+        return nil unless class_def.class_id(slots[next_index].id) == expected_class
+
+        positions << next_index
+        current = next_index
+      end
+
+      positions
+    end
+
+    private def match_coverage_sequence_positions(slots : Array(ShaperSlot), start_index : Int32, coverages : Array(Tables::OpenType::Coverage), ignored : IgnorePredicate) : Array(Int32)?
+      return nil if coverages.empty?
+      return nil if start_index < 0 || start_index >= slots.size
+      return nil if ignored.call(slots[start_index].id)
+
+      first_coverage = coverages[0]
+      return nil unless first_coverage.covers?(slots[start_index].id)
+
+      positions = [start_index]
+      current = start_index
+
+      coverages[1..].each do |coverage|
+        next_index = next_relevant_index(slots, current + 1, ignored)
+        return nil unless next_index
+        return nil unless coverage.covers?(slots[next_index].id)
+
+        positions << next_index
+        current = next_index
+      end
+
+      positions
+    end
+
+    private def match_chained_glyph_rule_positions(slots : Array(ShaperSlot), start_index : Int32, rule : Tables::OpenType::ChainedSequenceRule, ignored : IgnorePredicate) : Array(Int32)?
+      input_positions = match_glyph_sequence_positions(slots, start_index, rule.input_sequence, ignored)
+      return nil unless input_positions
+
+      current = start_index
+      rule.backtrack_sequence.each do |expected_glyph|
+        prev_index = prev_relevant_index(slots, current - 1, ignored)
+        return nil unless prev_index
+        return nil unless slots[prev_index].id == expected_glyph
+        current = prev_index
+      end
+
+      current = input_positions.last
+      rule.lookahead_sequence.each do |expected_glyph|
+        next_index = next_relevant_index(slots, current + 1, ignored)
+        return nil unless next_index
+        return nil unless slots[next_index].id == expected_glyph
+        current = next_index
+      end
+
+      input_positions
+    end
+
+    private def match_chained_class_rule_positions(slots : Array(ShaperSlot), start_index : Int32, rule : Tables::OpenType::ChainedClassSequenceRule, backtrack_class_def : Tables::OpenType::ClassDef, input_class_def : Tables::OpenType::ClassDef, lookahead_class_def : Tables::OpenType::ClassDef, ignored : IgnorePredicate) : Array(Int32)?
+      input_positions = match_class_sequence_positions(slots, start_index, input_class_def, rule.input_sequence, ignored)
+      return nil unless input_positions
+
+      current = start_index
+      rule.backtrack_sequence.each do |expected_class|
+        prev_index = prev_relevant_index(slots, current - 1, ignored)
+        return nil unless prev_index
+        return nil unless backtrack_class_def.class_id(slots[prev_index].id) == expected_class
+        current = prev_index
+      end
+
+      current = input_positions.last
+      rule.lookahead_sequence.each do |expected_class|
+        next_index = next_relevant_index(slots, current + 1, ignored)
+        return nil unless next_index
+        return nil unless lookahead_class_def.class_id(slots[next_index].id) == expected_class
+        current = next_index
+      end
+
+      input_positions
+    end
+
+    private def match_chained_coverage_positions(slots : Array(ShaperSlot), start_index : Int32, backtrack_coverages : Array(Tables::OpenType::Coverage), input_coverages : Array(Tables::OpenType::Coverage), lookahead_coverages : Array(Tables::OpenType::Coverage), ignored : IgnorePredicate) : Array(Int32)?
+      input_positions = match_coverage_sequence_positions(slots, start_index, input_coverages, ignored)
+      return nil unless input_positions
+
+      current = start_index
+      backtrack_coverages.each do |coverage|
+        prev_index = prev_relevant_index(slots, current - 1, ignored)
+        return nil unless prev_index
+        return nil unless coverage.covers?(slots[prev_index].id)
+        current = prev_index
+      end
+
+      current = input_positions.last
+      lookahead_coverages.each do |coverage|
+        next_index = next_relevant_index(slots, current + 1, ignored)
+        return nil unless next_index
+        return nil unless coverage.covers?(slots[next_index].id)
+        current = next_index
+      end
+
+      input_positions
+    end
+
+    private def reverse_chaining_match?(slots : Array(ShaperSlot), index : Int32, subtable : Tables::OpenType::ReverseChainSubst, ignored : IgnorePredicate) : Bool
+      return false unless subtable.input_coverage.covers?(slots[index].id)
+
+      current = index
+      subtable.backtrack_coverages.each do |coverage|
+        prev_index = prev_relevant_index(slots, current - 1, ignored)
+        return false unless prev_index
+        return false unless coverage.covers?(slots[prev_index].id)
+        current = prev_index
+      end
+
+      current = index
+      subtable.lookahead_coverages.each do |coverage|
+        next_index = next_relevant_index(slots, current + 1, ignored)
+        return false unless next_index
+        return false unless coverage.covers?(slots[next_index].id)
+        current = next_index
+      end
+
+      true
+    end
+
+    private def next_relevant_index(slots : Array(ShaperSlot), start_index : Int32, ignored : IgnorePredicate) : Int32?
+      index = start_index
+      while index < slots.size
+        return index unless ignored.call(slots[index].id)
+        index += 1
+      end
+      nil
+    end
+
+    private def prev_relevant_index(slots : Array(ShaperSlot), start_index : Int32, ignored : IgnorePredicate) : Int32?
+      index = start_index
+      while index >= 0
+        return index unless ignored.call(slots[index].id)
+        index -= 1
+      end
+      nil
+    end
+
+    private def replace_slots(slots : Array(ShaperSlot), start_index : Int32, remove_count : Int32, insert_slots : Array(ShaperSlot)) : Array(ShaperSlot)
+      prefix = start_index > 0 ? slots[0, start_index] : ([] of ShaperSlot)
+
+      suffix_start = start_index + remove_count
+      suffix_count = slots.size - suffix_start
+      suffix = suffix_count > 0 ? slots[suffix_start, suffix_count] : ([] of ShaperSlot)
+
+      prefix + insert_slots + suffix
+    end
+
+    private def glyph_ignored_for_gsub_lookup?(lookup : Tables::OpenType::GSUBLookup, glyph_id : UInt16) : Bool
+      return false unless gdef = safe_gdef
+
+      return true if lookup.ignore_marks? && gdef.mark?(glyph_id)
+      return true if lookup.ignore_ligatures? && gdef.ligature?(glyph_id)
+      return true if lookup.ignore_base_glyphs? && gdef.base?(glyph_id)
+
+      mark_attach_type = ((lookup.lookup_flag & MARK_ATTACH_TYPE_MASK) >> 8).to_u16
+      if mark_attach_type != 0 && gdef.mark?(glyph_id)
+        return true unless gdef.mark_attach_class(glyph_id) == mark_attach_type
+      end
+
+      if set = lookup.mark_filtering_set
+        if gdef.mark?(glyph_id) && !gdef.in_mark_glyph_set?(glyph_id, set.to_i)
+          return true
+        end
+      end
+
+      false
+    end
+
+    private def glyph_ignored_for_gpos_lookup?(lookup : Tables::OpenType::GPOSLookup, glyph_id : UInt16) : Bool
+      return false unless gdef = safe_gdef
+
+      return true if (lookup.lookup_flag & GPOS_IGNORE_MARKS) != 0 && gdef.mark?(glyph_id)
+      return true if (lookup.lookup_flag & GPOS_IGNORE_LIGATURES) != 0 && gdef.ligature?(glyph_id)
+      return true if (lookup.lookup_flag & GPOS_IGNORE_BASE_GLYPHS) != 0 && gdef.base?(glyph_id)
+
+      mark_attach_type = ((lookup.lookup_flag & MARK_ATTACH_TYPE_MASK) >> 8).to_u16
+      if mark_attach_type != 0 && gdef.mark?(glyph_id)
+        return true unless gdef.mark_attach_class(glyph_id) == mark_attach_type
+      end
+
+      if set = lookup.mark_filtering_set
+        if (lookup.lookup_flag & GPOS_USE_MARK_FILTERING_SET) != 0
+          if gdef.mark?(glyph_id) && !gdef.in_mark_glyph_set?(glyph_id, set.to_i)
+            return true
+          end
+        end
+      end
+
+      false
     end
   end
 end
