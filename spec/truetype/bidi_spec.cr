@@ -30,6 +30,14 @@ describe TrueType::Bidi do
     end
   end
 
+  describe ".mirrored_char" do
+    it "returns mirrored brackets when available" do
+      TrueType::Bidi.mirrored_char('(').should eq(')')
+      TrueType::Bidi.mirrored_char(')').should eq('(')
+      TrueType::Bidi.mirrored_char('A').should be_nil
+    end
+  end
+
   describe ".resolve" do
     it "determines paragraph direction from first strong character" do
       ltr = TrueType::Bidi.resolve("abc אבג", TrueType::Bidi::ParagraphDirection::Auto)
@@ -62,6 +70,11 @@ describe TrueType::Bidi do
       result.chars.size.should eq(8)
       result.display_visual_to_logical.size.should eq(6)
       result.visual_text.should eq("abcגבא")
+    end
+
+    it "mirrors bracket glyphs in RTL visual runs" do
+      result = TrueType::Bidi.resolve("אבג (de)", TrueType::Bidi::ParagraphDirection::RightToLeft)
+      result.visual_text.should eq("(de) גבא")
     end
   end
 end

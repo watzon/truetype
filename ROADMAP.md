@@ -456,9 +456,9 @@ Implementation of Unicode Bidirectional Algorithm (UAX #9) for mixed LTR/RTL tex
   - [x] Identify paired brackets
   - [x] Match opening/closing pairs
   - [x] Assign direction based on context
-- [ ] **N1-N2**: Neutral type resolution
+- [x] **N1-N2**: Neutral type resolution
   - [x] Resolve neutrals between strong types
-  - [ ] Handle isolate boundaries
+  - [x] Handle isolate boundaries
 - [x] **I1-I2**: Implicit level assignment
   - [x] Assign levels based on resolved types
 
@@ -469,7 +469,7 @@ Implementation of Unicode Bidirectional Algorithm (UAX #9) for mixed LTR/RTL tex
   - [x] Reverse odd-level runs
   - [x] Handle trailing whitespace
 - [x] **L2**: Line break handling
-- [ ] **L3-L4**: Combining mark and control character handling
+- [x] **L3-L4**: Combining mark and control character handling
 
 ### Integration
 
@@ -480,8 +480,8 @@ Implementation of Unicode Bidirectional Algorithm (UAX #9) for mixed LTR/RTL tex
 
 ### Testing
 
-- [ ] Pass Unicode BidiTest.txt conformance suite (500K+ test cases)
-- [ ] Pass BidiCharacterTest.txt per-character tests
+- [x] Pass Unicode BidiTest.txt conformance suite (500K+ test cases)
+- [x] Pass BidiCharacterTest.txt per-character tests
 
 ---
 
@@ -520,7 +520,7 @@ Close the remaining behavior gaps so the library reaches complete functional cov
 - [ ] `shape_best_effort` behavior is predictable with and without HarfBuzz
 - [ ] All `SubsetOptions` flags are observable in tests
 - [ ] `LayoutOptions` fields all affect output behavior and are covered by tests
-- [ ] Bidi conformance tests are green
+- [x] Bidi conformance tests are green
 - [ ] No known crashers on malformed optional tables in default API paths
 
 ---
@@ -579,7 +579,7 @@ Enhancements to make the library easier to use.
 - [ ] Behavior tests for full GSUB/GPOS application outcomes
 - [ ] Subset option behavior tests (`SubsetOptions` flags + output format)
 - [ ] Malformed-font resilience/fuzz tests for optional tables
-- [ ] Bidi conformance tests (UAX #9 test suites)
+- [x] Bidi conformance tests (UAX #9 test suites)
 
 ### Test Fonts
 
