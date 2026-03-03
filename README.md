@@ -1,6 +1,6 @@
 # truetype
 
-> A pure Crystal library for parsing and manipulating TrueType/OpenType fonts.
+> A Crystal library for parsing and manipulating TrueType/OpenType fonts.
 
 ## Table of Contents
 
@@ -17,21 +17,22 @@
   - [Font Validation](#font-validation)
   - [Low-Level API](#low-level-api)
 - [Supported Features](#supported-features)
+- [Current Limitations](#current-limitations)
 - [Maintainers](#maintainers)
 - [Contributing](#contributing)
 - [License](#license)
 
 ## Background
 
-TrueType and OpenType fonts are complex binary formats that require careful parsing to extract glyph data, metrics, and other font information. This library provides a pure Crystal implementation for working with these font formats without external dependencies (except optional Brotli for WOFF2).
+TrueType and OpenType fonts are complex binary formats that require careful parsing to extract glyph data, metrics, and other font information. This library provides a Crystal implementation for reading and manipulating these formats, with optional integrations for Brotli (WOFF2) and HarfBuzz (advanced shaping).
 
 Key capabilities include:
 
 - **Format Support**: TTF, OTF, WOFF, WOFF2, TTC/OTC font collections
 - **Variable Fonts**: Full variation axis support (weight, width, slant, etc.)
 - **Color Fonts**: COLR/CPAL, SVG, sbix, CBDT/CBLC
-- **OpenType Layout**: GSUB/GPOS tables for ligatures, kerning, etc.
-- **Text Shaping**: Basic shaping with kerning and layout
+- **OpenType Layout**: GSUB/GPOS parsing with best-effort default lookup application
+- **Text Shaping**: Built-in shaping for common cases, optional HarfBuzz for full script support
 - **Subsetting**: Create minimal fonts with only needed glyphs
 - **Math Fonts**: MATH table for mathematical typesetting
 
@@ -45,7 +46,7 @@ dependencies:
     github: watzon/truetype
 ```
 
-For WOFF2 support, also add:
+For WOFF2 input/output, also add Brotli (this shard declares it as an optional dependency):
 
 ```yaml
 dependencies:
@@ -109,7 +110,7 @@ TrueType::Font.font?("font.ttf")  # => true
 TrueType::Font.font?(data)        # Check bytes directly
 
 # Detect font format without parsing
-TrueType::Font.detect_format(data)  # => :ttf, :otf, :woff, :woff2, :collection
+TrueType::Font.detect_format(data)  # => :ttf, :otf, :woff, :woff2, :collection, :type1, :unknown
 
 # Access font properties
 puts font.name           # Family name
@@ -129,7 +130,9 @@ font.italic?     # Italic style
 
 ### Text Shaping
 
-Shape text into positioned glyphs:
+Shape text into positioned glyphs.
+
+The default shaper handles common ligature/kerning cases and applies a subset of GSUB/GPOS behavior. For full shaping parity across complex scripts, use HarfBuzz (next section).
 
 ```crystal
 font = TrueType::Font.open("font.ttf")
@@ -282,11 +285,13 @@ if font.variable?
   font.named_instances.each_with_index do |inst, i|
     puts "Instance #{i}: #{inst.subfamily_name_id}"
   end
-  instance = font.instance(0)  # First named instance
+  if named = font.instance(0)  # First named instance
+    puts named.ascender
+  end
 
   # Get interpolated metrics
-  puts instance.ascender
-  puts instance.advance_width('A')
+  puts bold.ascender
+  puts bold.advance_width('A')
 end
 ```
 
@@ -346,7 +351,7 @@ puts "Height: #{paragraph.height}"
 
 # Iterate over lines with positions
 paragraph.each_line_with_position do |line, y|
-  puts "Line at y=#{y}: #{line.width}px wide"
+  puts "Line at y=#{y}: #{line.width} font units wide"
   line.glyphs.each do |glyph|
     # Render glyph...
   end
@@ -419,29 +424,37 @@ if gsub = parser.gsub
 end
 
 # Glyph outlines
+glyph_id = parser.glyph_id('A')
 outline = parser.glyph_outline(glyph_id)
 svg_path = outline.to_svg_path
 ```
 
 ## Supported Features
 
-| Category            | Features                                       | Status   |
-| ------------------- | ---------------------------------------------- | -------- |
-| **Core Tables**     | head, hhea, hmtx, maxp, cmap, name, post, OS/2 | Complete |
-| **Outlines**        | TrueType (glyf/loca), CFF, CFF2                | Complete |
-| **Web Fonts**       | WOFF, WOFF2                                    | Complete |
-| **Collections**     | TTC/OTC                                        | Complete |
-| **Variable Fonts**  | fvar, gvar, avar, HVAR, VVAR, MVAR, cvar, STAT | Complete |
-| **Color Fonts**     | COLR v0/v1, CPAL, SVG, CBDT/CBLC, sbix         | Complete |
-| **OpenType Layout** | GDEF, GSUB, GPOS                               | Complete |
-| **Kerning**         | kern table, GPOS kern feature                  | Complete |
-| **Math**            | MATH table                                     | Complete |
-| **Subsetting**      | TrueType, CFF                                  | Complete |
-| **Text Shaping**    | Basic (kerning, width), HarfBuzz (optional)    | Complete |
-| **Text Layout**     | Width, height, line breaking                   | Complete |
-| **Validation**      | Table validation, warnings                     | Complete |
+| Category            | Features                                               | Status                                                         |
+| ------------------- | ------------------------------------------------------ | -------------------------------------------------------------- |
+| **Core Tables**     | head, hhea, hmtx, maxp, cmap, name, post, OS/2         | Complete                                                       |
+| **Outlines**        | TrueType (glyf/loca), CFF, CFF2                        | Complete                                                       |
+| **Web Fonts**       | WOFF, WOFF2                                            | Complete                                                       |
+| **Collections**     | TTC/OTC                                                | Complete                                                       |
+| **Variable Fonts**  | fvar, gvar, avar, HVAR, VVAR, MVAR, cvar, STAT         | Complete                                                       |
+| **Color Fonts**     | COLR v0/v1, CPAL, SVG, CBDT/CBLC, sbix                 | Complete                                                       |
+| **OpenType Layout** | GDEF, GSUB, GPOS parsing + default-shaper hooks        | Parsed (application partial)                                   |
+| **Kerning**         | kern table, GPOS pair-kerning helper                   | Complete                                                       |
+| **Math**            | MATH table                                             | Complete                                                       |
+| **Subsetting**      | TrueType, CFF                                          | Complete                                                       |
+| **Text Shaping**    | Built-in best-effort shaper, HarfBuzz (optional)       | Complete with optional HarfBuzz; fallback parity pending       |
+| **Text Layout**     | Width, height, wrapping, alignment, bidi-aware shaping | Complete for current API; shaping-aware wrapping pending       |
+| **Validation**      | Structural/cross-table checks, warnings                | Complete for current criteria; exception normalization pending |
 
 See [ROADMAP.md](ROADMAP.md) for detailed feature status.
+
+## Current Limitations
+
+- Non-HarfBuzz shaping is best-effort; full GSUB/GPOS behavior parity is still in progress.
+- Shaping-aware line breaking/layout integration is still in progress.
+- Error surface normalization for malformed layout tables is still in progress.
+- TrueType bytecode interpretation is not implemented (optional future work).
 
 ## Maintainers
 
