@@ -26,6 +26,7 @@
 TrueType and OpenType fonts are complex binary formats that require careful parsing to extract glyph data, metrics, and other font information. This library provides a pure Crystal implementation for working with these font formats without external dependencies (except optional Brotli for WOFF2).
 
 Key capabilities include:
+
 - **Format Support**: TTF, OTF, WOFF, WOFF2, TTC/OTC font collections
 - **Variable Fonts**: Full variation axis support (weight, width, slant, etc.)
 - **Color Fonts**: COLR/CPAL, SVG, sbix, CBDT/CBLC
@@ -66,7 +67,7 @@ shards install
 require "truetype"
 
 # Open any font format with auto-detection
-font = TrueType::Font.open("path/to/font.ttf")  # or .otf, .woff, .woff2, .ttc
+font = TrueType::Font.open("path/to/font.ttf")  # or .otf, .woff, .woff2, .ttc/.otc
 
 # Access font information
 puts font.name              # "DejaVu Sans"
@@ -100,7 +101,7 @@ data = File.read("font.ttf").to_slice
 font = TrueType::Font.open(data)
 
 # Open font collections (returns all fonts)
-fonts = TrueType::Font.open_collection("collection.ttc")
+fonts = TrueType::Font.open_collection("collection.ttc") # or .otc
 fonts.each { |f| puts f.name }
 
 # Check if data is a valid font before opening
@@ -162,11 +163,14 @@ width = font.text_width("Hello World!")
 
 ### Advanced Text Shaping (HarfBuzz)
 
-For complex scripts (Arabic, Hebrew, Devanagari, Thai, etc.) or advanced OpenType features, you can optionally enable HarfBuzz integration:
+For complex scripts (Arabic, Hebrew, Devanagari, Thai, etc.) or advanced OpenType features, you can optionally enable HarfBuzz integration.
+
+HarfBuzz-backed APIs are only compiled when you pass the `-Dharfbuzz` flag.
 
 **Installation:**
 
 1. Install HarfBuzz on your system:
+
    ```bash
    # macOS
    brew install harfbuzz
@@ -222,6 +226,7 @@ if TrueType.harfbuzz_available?
 
   # For repeated shaping, reuse the HarfBuzz font for efficiency
   hb_font = font.harfbuzz_font
+  texts = ["مرحبا", "שלום", "Hello"]
   texts.each do |text|
     result = TrueType::HarfBuzz::Shaper.shape_with_font(hb_font, text)
   end
@@ -420,21 +425,21 @@ svg_path = outline.to_svg_path
 
 ## Supported Features
 
-| Category | Features | Status |
-|----------|----------|--------|
-| **Core Tables** | head, hhea, hmtx, maxp, cmap, name, post, OS/2 | Complete |
-| **Outlines** | TrueType (glyf/loca), CFF, CFF2 | Complete |
-| **Web Fonts** | WOFF, WOFF2 | Complete |
-| **Collections** | TTC/OTC | Complete |
-| **Variable Fonts** | fvar, gvar, avar, HVAR, VVAR, MVAR, cvar, STAT | Complete |
-| **Color Fonts** | COLR v0/v1, CPAL, SVG, CBDT/CBLC, sbix | Complete |
-| **OpenType Layout** | GDEF, GSUB, GPOS | Complete |
-| **Kerning** | kern table, GPOS kern feature | Complete |
-| **Math** | MATH table | Complete |
-| **Subsetting** | TrueType, CFF | Complete |
-| **Text Shaping** | Basic (kerning, width), HarfBuzz (optional) | Complete |
-| **Text Layout** | Width, height, line breaking | Complete |
-| **Validation** | Table validation, warnings | Complete |
+| Category            | Features                                       | Status   |
+| ------------------- | ---------------------------------------------- | -------- |
+| **Core Tables**     | head, hhea, hmtx, maxp, cmap, name, post, OS/2 | Complete |
+| **Outlines**        | TrueType (glyf/loca), CFF, CFF2                | Complete |
+| **Web Fonts**       | WOFF, WOFF2                                    | Complete |
+| **Collections**     | TTC/OTC                                        | Complete |
+| **Variable Fonts**  | fvar, gvar, avar, HVAR, VVAR, MVAR, cvar, STAT | Complete |
+| **Color Fonts**     | COLR v0/v1, CPAL, SVG, CBDT/CBLC, sbix         | Complete |
+| **OpenType Layout** | GDEF, GSUB, GPOS                               | Complete |
+| **Kerning**         | kern table, GPOS kern feature                  | Complete |
+| **Math**            | MATH table                                     | Complete |
+| **Subsetting**      | TrueType, CFF                                  | Complete |
+| **Text Shaping**    | Basic (kerning, width), HarfBuzz (optional)    | Complete |
+| **Text Layout**     | Width, height, line breaking                   | Complete |
+| **Validation**      | Table validation, warnings                     | Complete |
 
 See [ROADMAP.md](ROADMAP.md) for detailed feature status.
 
